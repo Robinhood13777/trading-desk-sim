@@ -257,6 +257,7 @@ function posCard(a, p, closed){
       </div>
       <div class="pnl-row"><span class="pnl-big mono ${cls(pnl)}">${seur(pnl)}</span><span class="mono ${cls(pp)}" style="font-size:18px;font-weight:600">${pct(pp,1)}</span><span class="m" style="color:var(--mut);font-size:12px">${closed?"нетто":"нереализ."} · к марже</span></div>
       ${trailTxt ? `<div style="color:var(--mut);font-size:12px;margin-top:8px">Трейлинг: ${trailTxt}</div>` : ""}
+      ${closed ? "" : tsLine(p)}
       ${strip(["LEAD", a.code, "RISK", "REP"])}
     </div>
     <div class="chart-wrap">${badge}<div class="lwc" data-lwc="${closed?"closed":"open"}:${esc(a.key)}"></div></div>
@@ -276,6 +277,7 @@ function renderPositions(){
     <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.paused?`<span class="tag closed" title="${esc(a.paused_note||"")}">⏸ пауза</span> `:""}${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
     <div class="s">${esc(a.position ? "в позиции " + a.position.side + (a.position.trail_tp_active ? " · трейлинг-тейк" : "") : a.status)}</div>
     ${fltLine(a)}
+    ${adxLine(a)}
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
   const keep = {}; document.querySelectorAll("#positions [data-lwc]").forEach(el => keep[el.getAttribute("data-lwc")] = el);
   $("positions").innerHTML = html;
@@ -283,6 +285,22 @@ function renderPositions(){
   Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
 }
 
+// Тайм-стоп: через 8×15m с входа позиция закрывается, если лучший ход < +0.5 ATR (цель = вход ± 0.5 ATR)
+function tsLine(p){
+  const t = p.time_stop; if(!t) return "";
+  const best = p.best ?? p.entry, long = p.side === "LONG";
+  const fav = long ? best - p.entry : p.entry - best, reached = fav >= t.need - 1e-12;
+  if(reached) return `<div class="ts-line" style="color:var(--mut);font-size:12px;margin-top:8px">⏱ Тайм-стоп снят: +${t.min_atr} ATR (${px(t.target)}) уже достигнуто</div>`;
+  const left = Math.round(t.deadline_t - Date.now()/1000), mm = Math.floor(Math.abs(left)/60), ss = Math.abs(left) % 60;
+  const cnt = left > 0 ? `через ${mm}:${String(ss).padStart(2,"0")}` : "срок вышел — закрытие в ближайшем цикле";
+  return `<div class="ts-line" style="color:${left>0&&left<1800?"var(--amber)":"var(--mut)"};font-size:12px;margin-top:8px" title="Если за ${t.minutes} мин с входа цена ни разу не прошла +${t.min_atr} ATR в сторону сделки — закрытие TIME_STOP">⏱ Тайм-стоп ${cnt}, если цена не дойдёт до ${px(t.target)} (+${t.min_atr} ATR; сейчас лучший ход ${(fav/(t.need/t.min_atr)).toFixed(2)} ATR)</div>`;
+}
+// ADX(14) 1h: фильтр новых входов (вход только при ADX > порога)
+function adxLine(a){
+  const x = a.adx; if(!x) return "";
+  if(x.value == null) return `<div class="s" style="color:var(--amber);font-size:11px" title="${esc(x.error||"")}">ADX 1h —: недоступен · вход заблокирован</div>`;
+  return `<div class="s" style="color:${x.pass?"var(--mut)":"var(--amber)"};font-size:11px" title="ADX(${x.period}) последнего закрытого 1h-бара; новые входы только при ADX > ${x.min}">ADX 1h ${x.value.toFixed(1)} ${x.pass?">":"≤"} ${x.min} · ${x.pass?"вход разрешён":"вход заблокирован"}</div>`;
+}
 const CODES_RU = {gold:"GOLD", oil:"OIL", sp500:"SP500", nas100:"NAS100"};
 function fltLine(a){
   const f = a.filter; if(!f || !f.text) return "";
