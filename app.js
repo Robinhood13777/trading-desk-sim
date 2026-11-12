@@ -289,12 +289,10 @@ function renderTV(){
   Object.values(D.assets).forEach(a => {
     const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",us30:"ICMARKETS:US30",sp500:"ICMARKETS:US500"}[a.key]);
     const w = document.createElement("div"); w.className = "card tv-card";
-    w.innerHTML = `<div class="card-head"><span class="eyebrow" style="color:${COLORS[a.code]}">${a.code} · ${esc(sym)}</span><span class="pill">TradingView · live</span></div><div class="tradingview-widget-container" style="height:420px"><div class="tradingview-widget-container__widget" style="height:100%"></div></div>`;
+    const q = new URLSearchParams({symbol:sym, interval:"5", theme:"dark", style:"1", timezone:"Europe/Madrid", locale:"ru",
+      hidesidetoolbar:"1", symboledit:"1", saveimage:"0", withdateranges:"1", studies:"[]", toolbarbg:"0a0e14"});
+    w.innerHTML = `<div class="card-head"><span class="eyebrow" style="color:${COLORS[a.code]}">${a.code} · ${esc(sym)}</span><span class="pill">TradingView · live</span></div>
+      <iframe class="tv-frame" loading="eager" allowtransparency="true" frameborder="0" scrolling="no" allowfullscreen src="https://s.tradingview.com/widgetembed/?${q.toString()}"></iframe>`;
     box.appendChild(w);
-    const s = document.createElement("script"); s.type = "text/javascript"; s.async = true;
-    s.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    s.text = JSON.stringify({autosize:true, symbol:sym, interval:"5", timezone:"Europe/Madrid", theme:"dark", style:"1", locale:"ru",
-      backgroundColor:"rgba(10,14,20,1)", gridColor:"rgba(30,40,52,0.6)", hide_side_toolbar:true, allow_symbol_change:true, withdateranges:true, studies:["STD;EMA"], support_host:"https://www.tradingview.com"});
-    w.querySelector(".tradingview-widget-container").appendChild(s);
   });
 }
