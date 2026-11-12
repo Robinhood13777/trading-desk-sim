@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grok Bot × Trading Desk · SIM</title>
+<meta name="description" content="Симуляция 7-агентного трейдинг-деска: золото, нефть, S&P 100, S&P 500. Не реальный счёт.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%232ee6a6%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 text-anchor=%22middle%22 font-family=%22Arial%22 font-weight=%22bold%22%3EG%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+<header class="top">
+  <div class="brand">
+    <div class="logo">G</div>
+    <div>
+      <div class="brand-title">Grok Bot <span class="x">×</span> Trading Desk <span class="sim-tag">SIM</span></div>
+      <div class="brand-sub">7 агентов · золото · нефть · S&P 100 · S&P 500 · <span id="lev-sub">50x</span> isolated</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <div class="live" id="live"><span class="dot"></span><span id="live-text">загрузка…</span></div>
+    <div class="timer"><div class="timer-label">SESSION</div><div class="timer-val mono" id="session-timer">--:--:--</div></div>
+  </div>
+</header>
+<nav class="agents" id="agents"></nav>
+
+<main>
+  <section class="grid hero">
+    <article class="card equity-card">
+      <div class="card-head"><span class="eyebrow">EQUITY</span><span class="pill" id="eq-mode">SIM · $1000 start</span></div>
+      <div class="eq-row">
+        <div class="eq-big mono" id="eq-big">$—</div>
+        <div class="eq-change" id="eq-change"></div>
+      </div>
+      <div class="eq-sub" id="eq-sub"></div>
+      <div class="spark" id="spark"></div>
+      <div class="progress">
+        <div class="progress-labels"><span>1x</span><span id="prog-label"></span><span>2x</span></div>
+        <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-v mono" id="k-trades">0</div><div class="kpi-l">сделок</div></div>
+        <div class="kpi"><div class="kpi-v mono" id="k-open">0</div><div class="kpi-l">открыто</div></div>
+        <div class="kpi"><div class="kpi-v mono" id="k-veto">0</div><div class="kpi-l">вето Risk Manager</div></div>
+        <div class="kpi"><div class="kpi-v mono" id="k-dd">0%</div><div class="kpi-l">день (стоп −5%)</div></div>
+      </div>
+    </article>
+    <article class="card desk-card">
+      <div class="card-head"><span class="eyebrow">DESK</span><span class="pill" id="risk-pill">RISK OK</span></div>
+      <div class="desk-rows" id="desk-rows"></div>
+      <div class="alloc" id="alloc"></div>
+      <div class="settings" id="settings"></div>
+    </article>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>POSITIONS</h2><span class="section-note" id="pos-note"></span></div>
+    <div class="positions" id="positions"></div>
+  </section>
+
+  <section class="grid two">
+    <article class="card">
+      <div class="card-head"><span class="eyebrow">EVERY CLOSE</span><span class="pill" id="close-count">0 closes</span></div>
+      <div class="close-stats" id="close-stats"></div>
+      <div id="lollipop" class="lollipop"></div>
+    </article>
+    <article class="card">
+      <div class="card-head"><span class="eyebrow">BIG CLOSES</span><span class="pill">top by |PnL|</span></div>
+      <div id="timeline" class="timeline"></div>
+    </article>
+  </section>
+
+  <section>
+    <article class="card honest">
+      <div class="card-head"><span class="eyebrow warn">THE HONEST PART</span></div>
+      <div class="honest-grid">
+        <div><b id="h-liq">Ликвидация ≈ 1.5% от входа.</b> При плече 50x изолированная маржа — это 2% номинала, минус 0.5% поддерживающей. Движение против позиции на ~1.5% = вся маржа сделки.</div>
+        <div><b>Гэпы обнуляют маржу.</b> Стоп стоит внутри цены ликвидации, но если бар открывается за ликвидацией (ночной гэп, новости), стоп не спасает — теряется вся маржа плюс комиссии.</div>
+        <div><b>Проскальзывание и комиссии.</b> В симуляции 2 bp проскальзывания и 2 bp комиссии на каждую сторону. При 50x это ~4% маржи за круг — реальные условия могут быть хуже.</div>
+        <div><b>Задержка данных.</b> Золото и нефть (COMEX/NYMEX через Yahoo) приходят с задержкой ~10 мин. Индексы торгуются только 15:30–22:00 по Мадриду; вне сессии бот по индексам ждёт.</div>
+        <div><b>Это не реальный счёт.</b> Все сделки — виртуальные заполнения движка по ценам Yahoo Finance. Прошлый результат симуляции ничего не гарантирует.</div>
+        <div><b>Страница обновляется с задержкой.</b> Движок — цикл 5 мин, публикация data.json ~раз в 2 мин, CDN GitHub Pages может добавить до ~10 мин.</div>
+      </div>
+    </article>
+  </section>
+  <footer class="foot" id="foot"></footer>
+</main>
+
+<div class="ticker"><div class="ticker-track" id="ticker"></div></div>
+<div class="tip" id="tip"></div>
+<script src="app.js"></script>
+</body>
+</html>

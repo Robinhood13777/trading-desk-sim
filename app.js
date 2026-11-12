@@ -1,0 +1,240 @@
+"use strict";
+const TZ = "Europe/Madrid";
+const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",SP100:"#5aa9ff",SP500:"#2ee6a6",RISK:"#ff5c7a",REP:"#9fb3c8"};
+const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",SP100:"100",SP500:"500",RISK:"RM",REP:"RP"};
+const AGENTS = [
+  {code:"LEAD",name:"Desk Lead"},{code:"GOLD",name:"Gold Bot",key:"gold"},{code:"OIL",name:"Oil Bot",key:"oil"},
+  {code:"SP100",name:"SP100 Bot",key:"sp100"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
+let D = null, lastFetchOk = 0;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd = (v, d=2) => v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const sgn = (v, d=2) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct = (v, d=2) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d) + "%";
+const px = v => v == null ? "—" : Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const cls = v => v > 0 ? "up" : v < 0 ? "down" : "flat";
+const fmtT = (t, opt) => new Intl.DateTimeFormat("ru-RU", Object.assign({timeZone:TZ,hour:"2-digit",minute:"2-digit"}, opt||{})).format(new Date(t*1000));
+const fmtDT = t => fmtT(t,{day:"2-digit",month:"short"});
+const hms = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60; return [h,m,x].map(n=>String(n).padStart(2,"0")).join(":"); };
+
+async function load(){
+  try{
+    const r = await fetch("data.json?t=" + Date.now(), {cache:"no-store"});
+    if(!r.ok) throw new Error(r.status);
+    D = await r.json(); lastFetchOk = Date.now(); render();
+  }catch(e){ console.warn("data.json", e); setLive(); }
+}
+
+function setLive(){
+  const el = $("live"), tx = $("live-text");
+  if(!D){ el.className="live"; tx.textContent="нет данных"; return; }
+  const age = Date.now()/1000 - D.generated_t;
+  el.className = "live " + (age < 900 ? "ok" : "stale");
+  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + Math.round(age/60) + " мин назад";
+}
+
+function tick(){
+  if(!D) return;
+  setLive();
+  const st = D.engine.created_t; $("session-timer").textContent = st ? hms(Date.now()/1000 - st) : "--:--:--";
+}
+
+function agentState(code){
+  const a = D.assets;
+  if(code === "LEAD") return {s: D.desk_lead.status || "—", d:"on"};
+  if(code === "RISK") return {s: D.risk.kill_switch ? "KILL SWITCH: " + D.risk.reason : (D.risk.status || "OK"), d: D.risk.kill_switch ? "bad" : "on"};
+  if(code === "REP") return {s: "сделок " + D.stats.trades + ", winrate " + (D.stats.winrate ?? "—") + "%", d:"on"};
+  const k = AGENTS.find(x=>x.code===code).key, x = a[k];
+  if(!x) return {s:"—", d:""};
+  return {s: x.status || "—", d: x.position ? "pos" : (!x.market_open ? "" : /REJECT|нет данных/.test(x.status) ? "warn" : "on")};
+}
+
+function renderAgents(){
+  $("agents").innerHTML = AGENTS.map(g => { const s = agentState(g.code);
+    return `<div class="chip" data-tip="${esc(g.name + ": " + s.s)}"><span class="av" style="background:${COLORS[g.code]}">${AV[g.code]}</span><b>${g.code}</b><span class="sd ${s.d}"></span><span class="st">${esc(s.s)}</span></div>`; }).join("");
+}
+
+function sparkSVG(pts, w=800, h=96){
+  if(pts.length < 2) return `<svg viewBox="0 0 ${w} ${h}"><line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}" stroke="#273141" stroke-dasharray="4 6"/></svg>`;
+  const ys = pts.map(p=>p.eq), start = D.equity.start;
+  let lo = Math.min(...ys, start), hi = Math.max(...ys, start); if(hi-lo < 2){ lo -= 1; hi += 1; }
+  const t0 = pts[0].t, t1 = pts[pts.length-1].t || t0+1;
+  const X = t => (t-t0)/(t1-t0||1)*w, Y = v => h-6 - (v-lo)/(hi-lo)*(h-12);
+  const d = pts.map((p,i)=>(i?"L":"M")+X(p.t).toFixed(1)+","+Y(p.eq).toFixed(1)).join("");
+  const up = ys[ys.length-1] >= start, c = up ? "#2ee6a6" : "#ff5c7a";
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><linearGradient id="sg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".28"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
+  <line x1="0" x2="${w}" y1="${Y(start)}" y2="${Y(start)}" stroke="#3a4656" stroke-dasharray="3 5" vector-effect="non-scaling-stroke"/>
+  <path d="${d}L${w},${h}L0,${h}Z" fill="url(#sg)"/><path d="${d}" fill="none" stroke="${c}" stroke-width="2.2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+  <circle cx="${X(pts[pts.length-1].t)}" cy="${Y(ys[ys.length-1])}" r="4" fill="${c}"/></svg>`;
+}
+
+function renderEquity(){
+  const e = D.equity;
+  $("eq-big").textContent = usd(e.equity);
+  $("eq-change").innerHTML = `<span class="${cls(e.change)}">${sgn(e.change)} · ${pct(e.change_pct)}</span>`;
+  $("eq-sub").innerHTML = `<b class="mono">${e.multiple.toFixed(3)}x</b> от $${e.start.toFixed(0)} · кэш ${usd(e.cash)} · реализовано ${sgn(D.stats.realized)} · ${D.engine.cycles} циклов движка`;
+  $("spark").innerHTML = sparkSVG(D.curve);
+  const p = Math.max(0, Math.min(1, e.multiple - 1));
+  $("prog-fill").style.width = (p*100).toFixed(1) + "%";
+  $("prog-label").textContent = e.multiple >= 1 ? `${(p*100).toFixed(1)}% пути до 2x` : `ниже старта: ${pct(e.change_pct)}`;
+  $("k-trades").textContent = D.stats.trades;
+  $("k-open").textContent = Object.values(D.assets).filter(a=>a.position).length + "/" + D.settings.max_positions_total;
+  $("k-veto").textContent = D.stats.vetoes;
+  const dd = e.day_dd_pct || 0; $("k-dd").innerHTML = `<span class="${cls(dd)}">${pct(dd)}</span>`;
+  $("eq-mode").textContent = `SIM · $${e.start.toFixed(0)} start`;
+}
+
+function renderDesk(){
+  const r = D.risk;
+  $("risk-pill").className = "pill " + (r.kill_switch ? "r" : "g");
+  $("risk-pill").textContent = r.kill_switch ? "KILL SWITCH" : "RISK OK";
+  const rows = [
+    ["LEAD","Desk Lead", D.desk_lead.status],
+    ["RISK","Risk Manager", r.kill_switch ? r.reason : r.status],
+    ["REP","Reporter", `${D.stats.trades} сделок · winrate ${D.stats.winrate ?? "—"}% · одобрено ${D.stats.approved} / вето ${D.stats.vetoes}`],
+  ];
+  if(D.engine.data_issues && D.engine.data_issues.length) rows.push(["!","Данные", D.engine.data_issues.join("; ")]);
+  $("desk-rows").innerHTML = rows.map(([c,n,t]) => `<div class="drow"><span class="av" style="background:${COLORS[c]||"#ffb547"}">${AV[c]||c}</span><div class="t"><b>${n}</b><br>${esc(t||"—")}</div></div>`).join("");
+  const as = Object.values(D.assets);
+  $("alloc").innerHTML = as.map(a => `<div style="flex:${(a.allocation.weight||0)};background:${COLORS[a.code]}" title="${a.code}"></div>`).join("");
+  $("alloc").insertAdjacentHTML("afterend", "");
+  let leg = document.querySelector(".alloc-leg"); if(!leg){ leg = document.createElement("div"); leg.className="alloc-leg"; $("alloc").after(leg); }
+  leg.innerHTML = as.map(a => `<span><i style="background:${COLORS[a.code]}"></i>${a.code} ${Math.round((a.allocation.weight||0)*100)}% · ${usd(a.allocation.capital,0)}</span>`).join("");
+  const s = D.settings;
+  $("settings").innerHTML = [
+    ["Плечо", s.leverage + "x " + (s.margin_mode||"")], ["Риск/сделка", s.risk_per_trade_pct + "%"],
+    ["Дневной стоп", "−" + s.daily_stop_pct + "%"], ["Макс. позиций", s.max_positions_total],
+    ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"],
+    ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"]
+  ].map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
+  $("lev-sub").textContent = s.leverage + "x";
+}
+
+// ---------- candle chart ----------
+function candleSVG(c, levels, opt){
+  opt = opt || {}; const w = opt.w || 860, h = opt.h || 300, padR = opt.mini ? 4 : 78, padL = 6, padT = 12, padB = opt.mini ? 6 : 22;
+  if(!c || !c.length) return `<svg viewBox="0 0 ${w} ${h}"><text x="${w/2}" y="${h/2}" fill="#5b6675" text-anchor="middle" font-size="13">нет свечей</text></svg>`;
+  let lo = Math.min(...c.map(b=>b.l)), hi = Math.max(...c.map(b=>b.h));
+  const span0 = hi - lo || hi*0.001, off = [];
+  (levels||[]).forEach(L => { if(L.v == null) return;
+    if(L.v >= lo - span0*1.6 && L.v <= hi + span0*1.6){ lo = Math.min(lo, L.v); hi = Math.max(hi, L.v); L.in = true; } else { L.in = false; off.push(L); } });
+  const pad = (hi-lo)*0.06; lo -= pad; hi += pad;
+  const n = c.length, cw = (w-padL-padR)/n, Y = v => padT + (hi-v)/(hi-lo)*(h-padT-padB), X = i => padL + i*cw + cw/2;
+  let s = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  if(!opt.mini){ for(let g=0; g<=4; g++){ const v = lo + (hi-lo)*g/4, y = Y(v);
+      s += `<line x1="${padL}" x2="${w-padR}" y1="${y}" y2="${y}" stroke="#161d27"/><text x="${w-padR+6}" y="${y+4}" fill="#5b6675" font-size="10.5" font-family="JetBrains Mono">${px(v)}</text>`; }
+    const step = Math.max(1, Math.round(n/6));
+    for(let i=0;i<n;i+=step) s += `<text x="${X(i)}" y="${h-6}" fill="#5b6675" font-size="10.5" text-anchor="middle" font-family="JetBrains Mono">${fmtT(c[i].t)}</text>`; }
+  if(opt.from_t){ const i0 = c.findIndex(b=>b.t >= opt.from_t); const i1 = opt.to_t ? c.findIndex(b=>b.t >= opt.to_t) : n-1;
+    if(i0 >= 0){ const x0 = padL + i0*cw, x1 = padL + ((i1<0?n-1:i1)+1)*cw; s += `<rect x="${x0}" y="${padT}" width="${Math.max(2,x1-x0)}" height="${h-padT-padB}" fill="rgba(90,169,255,.05)"/>`; } }
+  c.forEach((b,i) => { const up = b.c >= b.o, col = up ? "#2ee6a6" : "#ff5c7a", x = X(i), bw = Math.max(1, cw*0.62);
+    s += `<line x1="${x}" x2="${x}" y1="${Y(b.h)}" y2="${Y(b.l)}" stroke="${col}" stroke-width="1" opacity=".9"/>`;
+    const y1 = Y(Math.max(b.o,b.c)), y2 = Y(Math.min(b.o,b.c));
+    s += `<rect x="${x-bw/2}" y="${y1}" width="${bw}" height="${Math.max(1,y2-y1)}" fill="${col}" rx="1"/>`; });
+  (levels||[]).filter(L=>L.in).forEach(L => { const y = Y(L.v);
+    s += `<line x1="${padL}" x2="${w-padR}" y1="${y}" y2="${y}" stroke="${L.c}" stroke-width="1.3" stroke-dasharray="${L.dash||"0"}"/>`;
+    if(!opt.mini) s += `<rect x="${w-padR+2}" y="${y-9}" width="${padR-4}" height="18" rx="5" fill="${L.c}"/><text x="${w-padR/2}" y="${y+4}" fill="#061018" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">${L.t}</text>`; });
+  if(!opt.mini) off.forEach((L,j) => { const below = L.v < lo; const y = below ? h-padB-10-j*16 : padT+10+j*16;
+    s += `<text x="${w-padR-6}" y="${y}" fill="${L.c}" font-size="11" text-anchor="end" font-weight="700" font-family="Inter">${below?"↓":"↑"} ${L.t} ${px(L.v)}</text>`; });
+  if(opt.lastLine){ const y = Y(c[n-1].c); s += `<line x1="${padL}" x2="${w-padR}" y1="${y}" y2="${y}" stroke="#8b97a8" stroke-dasharray="2 3" opacity=".6"/>`; }
+  return s + "</svg>";
+}
+
+function levelsOf(p){
+  const L = [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.tp,t:"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}];
+  if(p.sl_initial != null && p.sl != null && Math.abs(p.sl_initial - p.sl) > 1e-9){ L.push({v:p.sl_initial,t:"SL init",c:"#6b3b48",dash:"3 4"}); L.push({v:p.sl,t:p.trailing_active?"TRAIL":"SL BE",c:"#ff5c7a"}); }
+  else L.push({v:p.sl,t:"STOP",c:"#ff5c7a"});
+  return L;
+}
+
+function strip(active){ return `<div class="strip">` + AGENTS.map(g => `<span class="${active.includes(g.code)?"act":""}" style="${active.includes(g.code)?"background:"+COLORS[g.code]:""}">${g.code}</span>`).join("") + `</div>`; }
+
+function posCard(a, p, closed){
+  const lev = p.leverage || D.settings.leverage, side = p.side;
+  const pnl = closed ? p.pnl : p.upnl, pp = closed ? p.pnl_pct_margin : p.upnl_pct_margin;
+  const badge = closed ? `<div class="badge-closed ${pnl>0?"g":"r"}">CLOSED ${sgn(pnl)}</div>` : `<div class="badge-closed b">OPEN ${sgn(pnl)}</div>`;
+  const lv = closed ? [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.exit,t:"EXIT",c:pnl>0?"#2ee6a6":"#ff5c7a"},{v:p.sl,t:"STOP",c:"#ff5c7a",dash:"4 4"},{v:p.tp,t:"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}] : levelsOf(p);
+  const trailTxt = (p.trail_events||[]).map(e=>esc(e.event)).slice(-3).join(" · ");
+  const head = closed ? `Последняя закрытая сделка ${p.id} · ${esc(p.reason)}` : `Открыта ${esc(p.opened)} (Мадрид)` + (p.trailing_active ? " · трейлинг активен" : p.breakeven ? " · стоп в безубытке" : "");
+  return `<article class="card pos-card">
+    <div class="pos-left">
+      <div class="asset"><span class="asset-name">${esc(a.label || a.code)}</span><span class="side ${side}">${side} ${lev}x</span></div>
+      <div class="asset-sub">${esc(a.symbol)} · ${esc(a.name)} · ${head}</div>
+      <span class="approved">✓ APPROVED by Risk Manager</span>
+      <div class="levels">
+        <div class="lvl"><div class="l">ENTRY</div><div class="v mono">${px(p.entry)}</div></div>
+        <div class="lvl"><div class="l">${closed?"EXIT":"PRICE"}</div><div class="v mono">${px(closed?p.exit:p.price)}</div></div>
+        <div class="lvl"><div class="l">${!closed && p.trailing_active?"TRAILING STOP":"STOP"}</div><div class="v mono down">${px(p.sl)}</div></div>
+        <div class="lvl"><div class="l">TAKE PROFIT</div><div class="v mono up">${px(p.tp)}</div></div>
+        <div class="lvl"><div class="l">LIQUIDATION</div><div class="v mono" style="color:#ff9f43">${px(p.liq)}</div></div>
+        <div class="lvl"><div class="l">MARGIN / NOTIONAL</div><div class="v mono">${usd(p.margin)} / ${usd(p.notional,0)}</div></div>
+      </div>
+      <div class="pnl-row"><span class="pnl-big mono ${cls(pnl)}">${sgn(pnl)}</span><span class="mono ${cls(pp)}" style="font-size:18px;font-weight:600">${pct(pp,1)}</span><span class="m" style="color:var(--mut);font-size:12px">${closed?"нетто":"нереализ."} · к марже</span></div>
+      ${trailTxt ? `<div style="color:var(--mut);font-size:12px;margin-top:8px">Трейлинг: ${trailTxt}</div>` : ""}
+      ${strip(["LEAD", a.code, "RISK", "REP"])}
+    </div>
+    <div class="chart-wrap">${badge}${candleSVG(p.candles, lv, {from_t:p.opened_t, to_t:closed?p.closed_t:null, lastLine:!closed})}</div>
+  </article>`;
+}
+
+function renderPositions(){
+  const as = Object.values(D.assets), open = as.filter(a=>a.position);
+  let html = open.map(a => posCard(a, a.position, false)).join("");
+  if(!open.length){
+    if(D.last_trade){ const a = D.assets[D.last_trade.bot]; html += posCard(a, D.last_trade, true); $("pos-note").textContent = "открытых позиций нет — показана последняя закрытая сделка"; }
+    else { html += `<div class="empty"><div class="big">Пока ни одной сделки</div>Боты ждут сигнала по правилам 30m тренд → 15m подтверждение → 5m пересечение EMA. Ниже — реальные 5m-свечи, которые они сейчас смотрят.</div>`; $("pos-note").textContent = "открытых позиций нет"; }
+  } else $("pos-note").textContent = open.length + " открыто · обновление уровней каждые 5 мин (цикл движка)";
+  html += `<div class="watch">` + as.map(a => { const ch = a.chg_24h_pct;
+    return `<div class="wcard"><div class="h"><span class="n" style="color:${COLORS[a.code]}">${a.code}</span><span class="p mono">${px(a.price)}</span></div>
+    <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
+    <div class="s">${esc(a.position ? "в позиции " + a.position.side : a.status)}</div>
+    ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
+  $("positions").innerHTML = html;
+}
+
+function renderCloses(){
+  const T = D.trades, s = D.stats;
+  $("close-count").textContent = T.length + " closes";
+  $("close-stats").innerHTML = `<div class="cs"><div class="v mono">${s.winrate==null?"—":s.winrate.toFixed(0)+"%"}</div><div class="l">winrate (${s.wins}W / ${s.losses}L)</div></div>
+    <div class="cs"><div class="v mono up">${s.avg_win==null?"—":sgn(s.avg_win)}</div><div class="l">avg win</div></div>
+    <div class="cs"><div class="v mono down">${s.avg_loss==null?"—":sgn(s.avg_loss)}</div><div class="l">avg loss</div></div>`;
+  if(!T.length){ $("lollipop").innerHTML = `<div class="empty"><div class="big">Закрытых сделок пока нет</div>Каждое закрытие появится здесь палочкой: вверх — прибыль, вниз — убыток.</div>`; return; }
+  const w = 760, h = 220, m = 18, items = T.slice(-60), mx = Math.max(...items.map(t=>Math.abs(t.pnl)), 1), mid = h/2, cw = (w-2*m)/items.length;
+  let svg = `<svg viewBox="0 0 ${w} ${h}"><line x1="${m}" x2="${w-m}" y1="${mid}" y2="${mid}" stroke="#273141"/>`;
+  items.forEach((t,i) => { const x = m + cw*i + cw/2, y = mid - t.pnl/mx*(mid-18), c = t.pnl>0 ? "#2ee6a6" : "#ff5c7a";
+    const tip = `${t.id} ${t.code} ${t.side} · ${sgn(t.pnl)} (${pct(t.pnl_pct_margin,1)} маржи) · ${t.reason} · ${fmtDT(t.closed_t)}`;
+    svg += `<line x1="${x}" x2="${x}" y1="${mid}" y2="${y}" stroke="${c}" stroke-width="2" opacity=".75"/><circle cx="${x}" cy="${y}" r="${Math.min(7, 3+cw/6)}" fill="${c}" data-tip="${esc(tip)}"/>`; });
+  $("lollipop").innerHTML = svg + "</svg>";
+}
+
+function renderTimeline(){
+  const T = D.trades;
+  if(!T.length){ $("timeline").innerHTML = `<div class="empty" style="margin-left:-18px"><div class="big">Пока пусто</div>Сюда попадут самые крупные закрытия — с активом, направлением, временем и причиной выхода.</div>`; return; }
+  const big = [...T].sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl)).slice(0,6).sort((a,b)=>b.closed_t-a.closed_t);
+  $("timeline").innerHTML = big.map(t => `<div class="tl ${t.pnl>0?"g":"r"}"><div class="row"><span class="w">${t.id} · ${t.code} <span class="side ${t.side}" style="font-size:10px;padding:2px 6px">${t.side} ${t.leverage}x</span></span><span class="mono ${cls(t.pnl)}" style="font-weight:700">${sgn(t.pnl)}</span></div>
+    <div class="m">${fmtDT(t.closed_t)} · ${px(t.entry)} → ${px(t.exit)} · ${esc(t.reason)} · ${pct(t.pnl_pct_margin,1)} маржи</div></div>`).join("");
+}
+
+function renderTicker(){
+  const items = [];
+  Object.values(D.assets).forEach(a => items.push(`<span class="tk"><b style="color:${COLORS[a.code]}">${a.code}</b><span class="mono">${px(a.price)}</span> <span class="mono ${cls(a.chg_24h_pct)}">${pct(a.chg_24h_pct)}</span></span>`));
+  items.push(`<span class="tk sim">SIM · ILLUSTRATIVE FILLS · NOT A REAL ACCOUNT</span>`);
+  AGENTS.forEach(g => { const s = agentState(g.code); items.push(`<span class="tk"><b>${g.code}</b>${esc(s.s.length>80?s.s.slice(0,80)+"…":s.s)}</span>`); });
+  items.push(`<span class="tk sim">SIM · ILLUSTRATIVE FILLS · NOT A REAL ACCOUNT</span>`);
+  const one = items.join("");
+  $("ticker").innerHTML = one + one;
+}
+
+function renderFoot(){
+  $("foot").innerHTML = `<span>Данные: Yahoo Finance (5m/15m/30m) · движок: цикл ${Math.round(D.engine.cycle_seconds/60)} мин, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 30 с; GitHub Pages CDN может задерживать до ~10 мин.</span>`;
+  $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа.`;
+}
+
+function render(){
+  [renderAgents, renderEquity, renderDesk, renderPositions, renderCloses, renderTimeline, renderTicker, renderFoot].forEach(f => { try{ f(); }catch(e){ console.error(f.name, e); } });
+  tick();
+}
+
+document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"), tip = $("tip");
+  if(t){ tip.textContent = t.getAttribute("data-tip"); tip.style.display = "block"; tip.style.left = Math.min(e.clientX+14, innerWidth-330) + "px"; tip.style.top = (e.clientY+14) + "px"; } else tip.style.display = "none"; });
+load(); setInterval(load, 30000); setInterval(tick, 1000);
