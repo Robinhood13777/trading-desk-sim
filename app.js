@@ -1,10 +1,10 @@
 "use strict";
 const TZ = "Europe/Madrid";
-const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",US30:"#5aa9ff",SP500:"#2ee6a6",NAS100:"#c77dff",RISK:"#ff5c7a",REP:"#9fb3c8"};
-const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",US30:"30",SP500:"500",NAS100:"NDX",RISK:"RM",REP:"RP"};
+const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",SP500:"#2ee6a6",NAS100:"#c77dff",RISK:"#ff5c7a",REP:"#9fb3c8"};
+const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",SP500:"500",NAS100:"NDX",RISK:"RM",REP:"RP"};
 const AGENTS = [
   {code:"LEAD",name:"Desk Lead"},{code:"GOLD",name:"Gold Bot",key:"gold"},{code:"OIL",name:"Oil Bot",key:"oil"},
-  {code:"US30",name:"US30 Bot",key:"us30"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"NAS100",name:"NAS100 Bot",key:"nas100"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
+  {code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"NAS100",name:"NAS100 Bot",key:"nas100"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
 let D = null, lastFetchOk = 0;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -267,7 +267,7 @@ function renderPositions(){
   const as = Object.values(D.assets), open = as.filter(a=>a.position);
   let html = open.map(a => posCard(a, a.position, false)).join("");
   if(!open.length){
-    if(D.last_trade){ const a = D.assets[D.last_trade.bot]; html += posCard(a, D.last_trade, true); $("pos-note").textContent = "открытых позиций нет — показана последняя закрытая сделка"; }
+    if(D.last_trade && D.assets[D.last_trade.bot]){ const a = D.assets[D.last_trade.bot]; html += posCard(a, D.last_trade, true); $("pos-note").textContent = "открытых позиций нет — показана последняя закрытая сделка"; }
     else { html += `<div class="empty"><div class="big">Пока ни одной сделки</div>Боты ждут сигнала по правилам 30m тренд → 15m подтверждение → 5m пересечение EMA. Ниже — реальные 5m-свечи, которые они сейчас смотрят.</div>`; $("pos-note").textContent = "открытых позиций нет"; }
   } else $("pos-note").textContent = open.length + " открыто · уровни пересчитываются каждые 10 с (цикл движка)";
   html += `<div class="watch">` + as.map(a => { const ch = a.chg_24h_pct;
@@ -283,7 +283,7 @@ function renderPositions(){
   Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
 }
 
-const CODES_RU = {gold:"GOLD", oil:"OIL", us30:"US30", sp500:"SP500", nas100:"NAS100"};
+const CODES_RU = {gold:"GOLD", oil:"OIL", sp500:"SP500", nas100:"NAS100"};
 function fltLine(a){
   const f = a.filter; if(!f || !f.text) return "";
   const on = D.filters && D.filters.enabled;
@@ -382,7 +382,7 @@ function renderTV(){
   if(TV_DONE) return; TV_DONE = true;
   const box = $("tv-grid"); if(!box) return;
   Object.values(D.assets).forEach(a => {
-    const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",us30:"ICMARKETS:US30",sp500:"ICMARKETS:US500",nas100:"ICMARKETS:USTEC"}[a.key]);
+    const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",sp500:"ICMARKETS:US500",nas100:"ICMARKETS:USTEC"}[a.key]);
     const w = document.createElement("div"); w.className = "card tv-card";
     const q = new URLSearchParams({symbol:sym, interval:"5", theme:"dark", style:"1", timezone:"Europe/Madrid", locale:"ru",
       hidesidetoolbar:"1", symboledit:"1", saveimage:"0", withdateranges:"1", studies:"[]", toolbarbg:"0a0e14"});
