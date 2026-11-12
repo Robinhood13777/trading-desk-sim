@@ -164,6 +164,10 @@ function renderDesk(){
     ["REP","Reporter", `${D.stats.trades} сделок · winrate ${D.stats.winrate ?? "—"}% · одобрено ${D.stats.approved} / вето ${D.stats.vetoes}`],
   ];
   if(D.engine.data_issues && D.engine.data_issues.length) rows.push(["!","Данные", D.engine.data_issues.join("; ")]);
+  if(D.filters){ const F = D.filters, bl = Object.values(D.assets).filter(a=>a.filter&&a.filter.blocked);
+    rows.push(["F","Фильтры новостей/сессий", (F.enabled ? "ВКЛ — блокируют новые входы" : "ВЫКЛ — только показ, на торговлю не влияют") +
+      (bl.length ? " · сейчас окно: " + bl.map(a=>a.code+" ("+a.filter.reason+")").join(", ") : "") +
+      (F.calendar && !F.calendar.ok ? " · календарь FF недоступен — новости не блокируют" : "")]); }
   $("desk-rows").innerHTML = rows.map(([c,n,t]) => `<div class="drow"><span class="av" style="background:${COLORS[c]||"#ffb547"}">${AV[c]||c}</span><div class="t"><b>${n}</b><br>${esc(t||"—")}</div></div>`).join("");
   const as = Object.values(D.assets);
   $("alloc").innerHTML = as.map(a => `<div style="flex:${(a.allocation.weight||0)};background:${COLORS[a.code]}" title="${a.code}"></div>`).join("");
@@ -175,7 +179,7 @@ function renderDesk(){
     ["Плечо", s.leverage + "x " + (s.margin_mode||"")], ["Риск/сделка", s.risk_per_trade_pct + "%"],
     ["Дневной стоп", "−" + s.daily_stop_pct + "%"], ["Макс. позиций", s.max_positions_total],
     ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"], ["Трейлинг-тейк", s.trailing_tp && s.trailing_tp.enabled ? "вкл · с TP " + s.trailing_tp.activate_at_atr + " ATR, шаг " + s.trailing_tp.tp_step_atr + " ATR" : "выкл"],
-    ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
+    ["Фильтры", D.filters ? (D.filters.enabled ? "вкл" : "выкл (показ)") + " · новости ±" + D.filters.before_min + " мин · сессии" : "—"], ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
     ["Счёт", "EUR · EURUSD " + (D.fx && D.fx.rate ? D.fx.rate.toFixed(4) : "—")], ["Цены", feedLabel()]
   ].map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
   $("lev-sub").textContent = s.leverage + "x";
@@ -270,11 +274,19 @@ function renderPositions(){
     <div class="h" style="margin-top:2px">${srcBadge(a)}<span class="mono" style="font-size:11px;color:var(--mut)">${a.bid!=null?"bid "+px(a.bid)+" · ask "+px(a.ask):esc(a.symbol)+" · USD"}</span></div>
     <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
     <div class="s">${esc(a.position ? "в позиции " + a.position.side + (a.position.trail_tp_active ? " · трейлинг-тейк" : "") : a.status)}</div>
+    ${fltLine(a)}
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
   const keep = {}; document.querySelectorAll("#positions [data-lwc]").forEach(el => keep[el.getAttribute("data-lwc")] = el);
   $("positions").innerHTML = html;
   document.querySelectorAll("#positions [data-lwc]").forEach(el => { const o = keep[el.getAttribute("data-lwc")]; if(o) el.replaceWith(o); });
   Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
+}
+
+function fltLine(a){
+  const f = a.filter; if(!f || !f.text) return "";
+  const on = D.filters && D.filters.enabled;
+  if(f.blocked) return `<div class="s" style="color:var(--amber)" title="${on?"фильтр включён: новые входы блокируются":"фильтр выключен: только показ, вход не блокируется"}">⏸ ${esc(f.text)}${on?"":" · фильтр выкл"}</div>`;
+  return `<div class="s" style="color:var(--mut);font-size:11px">${esc(f.text)}</div>`;
 }
 
 function renderCloses(){
