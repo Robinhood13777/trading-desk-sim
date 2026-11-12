@@ -221,6 +221,15 @@ function levelsOf(p){
 
 function strip(active){ return `<div class="strip">` + AGENTS.map(g => `<span class="${active.includes(g.code)?"act":""}" style="${active.includes(g.code)?"background:"+COLORS[g.code]:""}">${g.code}</span>`).join("") + `</div>`; }
 
+// Результат в EUR, если цена дойдёт до уровня (формула движка: (уровень − entry) × qty × dir, не хуже −маржи, USD → EUR по EURUSD; без комиссий, как «нереализ.»)
+function levelEur(p, lvl){
+  if(lvl == null || p.entry == null || !p.qty) return null;
+  const fx = (D.fx && D.fx.rate) || p.fx_entry || 1, d = p.side === "LONG" ? 1 : -1;
+  let x = (lvl - p.entry) * p.qty * d; if(p.margin) x = Math.max(x, -p.margin);
+  return x / fx;
+}
+function lvlEur(p, lvl){ const v = levelEur(p, lvl); return v == null ? "" : `<div class="mono ${cls(v)}" style="font-size:12px;margin-top:2px" title="результат, если цена дойдёт до уровня (без комиссий)">${seur(v)}${v > 0 && lvl === p.sl ? " · зафиксировано" : ""}</div>`; }
+
 function posCard(a, p, closed){
   const lev = p.leverage || D.settings.leverage, side = p.side;
   const pnl = closed ? p.pnl : p.upnl, pp = closed ? p.pnl_pct_margin : p.upnl_pct_margin;
@@ -236,8 +245,8 @@ function posCard(a, p, closed){
       <div class="levels">
         <div class="lvl"><div class="l">ENTRY</div><div class="v mono">${px(p.entry)}</div></div>
         <div class="lvl"><div class="l">${closed?"EXIT":"PRICE"}</div><div class="v mono">${px(closed?p.exit:p.price)}</div></div>
-        <div class="lvl"><div class="l">${!closed && p.trailing_active?"TRAILING STOP":"STOP"}</div><div class="v mono down">${px(p.sl)}</div></div>
-        <div class="lvl"><div class="l">${!closed && p.trail_tp_active?"TRAILING TAKE":"TAKE PROFIT"}</div><div class="v mono up">${px(p.tp)}</div></div>
+        <div class="lvl"><div class="l">${!closed && p.trailing_active?"TRAILING STOP":"STOP"}</div><div class="v mono down">${px(p.sl)}</div>${closed?"":lvlEur(p, p.sl)}</div>
+        <div class="lvl"><div class="l">${!closed && p.trail_tp_active?"TRAILING TAKE":"TAKE PROFIT"}</div><div class="v mono up">${px(p.tp)}</div>${closed?"":lvlEur(p, p.tp)}</div>
         <div class="lvl"><div class="l">LIQUIDATION</div><div class="v mono" style="color:#ff9f43">${px(p.liq)}</div></div>
         <div class="lvl"><div class="l">MARGIN / NOTIONAL</div><div class="v mono">${eur(p.margin_eur ?? p.margin)} / ${usd(p.notional,0)}</div></div>
       </div>
