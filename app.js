@@ -19,11 +19,20 @@ const fmtT = (t, opt) => new Intl.DateTimeFormat("ru-RU", Object.assign({timeZon
 const fmtDT = t => fmtT(t,{day:"2-digit",month:"short"});
 const hms = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60; return [h,m,x].map(n=>String(n).padStart(2,"0")).join(":"); };
 
+const FAST_SRC = "https://5-180-180-55.sslip.io/data.json"; // VPS, обновление каждые 5 с
+let SRC = "VPS";
+async function getJSON(u, ms){
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
+  try{ const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store", signal:c.signal}); if(!r.ok) throw new Error(r.status); return await r.json(); }
+  finally{ clearTimeout(t); }
+}
 async function load(){
   try{
-    const r = await fetch("data.json?t=" + Date.now(), {cache:"no-store"});
-    if(!r.ok) throw new Error(r.status);
-    D = await r.json(); lastFetchOk = Date.now(); render();
+    let d = null;
+    try{ d = await getJSON(FAST_SRC, 4000); SRC = "VPS"; }
+    catch(e){ d = await getJSON("data.json", 8000); SRC = "GitHub"; }
+    if(D && d.generated_t < D.generated_t) return;
+    D = d; lastFetchOk = Date.now(); render();
   }catch(e){ console.warn("data.json", e); setLive(); }
 }
 
@@ -32,7 +41,7 @@ function setLive(){
   if(!D){ el.className="live"; tx.textContent="нет данных"; return; }
   const age = Date.now()/1000 - D.generated_t;
   el.className = "live " + (age < 900 ? "ok" : "stale");
-  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + ((D.live_feed||{}).any_live ? "IC Markets LIVE · " : "Yahoo delayed · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + Math.round(age/60) + " мин назад";
+  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + ((D.live_feed||{}).any_live ? "IC Markets LIVE · " : "Yahoo delayed · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + (age < 120 ? Math.round(age) + " с назад" : Math.round(age/60) + " мин назад") + " · " + SRC;
 }
 
 function tick(){
@@ -186,7 +195,7 @@ function renderPositions(){
   if(!open.length){
     if(D.last_trade){ const a = D.assets[D.last_trade.bot]; html += posCard(a, D.last_trade, true); $("pos-note").textContent = "открытых позиций нет — показана последняя закрытая сделка"; }
     else { html += `<div class="empty"><div class="big">Пока ни одной сделки</div>Боты ждут сигнала по правилам 30m тренд → 15m подтверждение → 5m пересечение EMA. Ниже — реальные 5m-свечи, которые они сейчас смотрят.</div>`; $("pos-note").textContent = "открытых позиций нет"; }
-  } else $("pos-note").textContent = open.length + " открыто · уровни пересчитываются каждую минуту (цикл движка)";
+  } else $("pos-note").textContent = open.length + " открыто · уровни пересчитываются каждые 10 с (цикл движка)";
   html += `<div class="watch">` + as.map(a => { const ch = a.chg_24h_pct;
     return `<div class="wcard"><div class="h"><span class="n" style="color:${COLORS[a.code]}">${a.code}</span><span class="p mono">${px(a.price)}</span></div>
     <div class="h" style="margin-top:2px">${srcBadge(a)}<span class="mono" style="font-size:11px;color:var(--mut)">${a.bid!=null?"bid "+px(a.bid)+" · ask "+px(a.ask):esc(a.symbol)+" · USD"}</span></div>
@@ -231,7 +240,7 @@ function renderTicker(){
 }
 
 function renderFoot(){
-  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 20 с; публикация ~каждые 60 с; CDN GitHub Pages может задерживать на несколько минут. Графики TradingView — живые.</span>`;
+  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 5 с с VPS (выкладка каждые 5 с); если VPS недоступен — копия на GitHub Pages (~60 с + задержка CDN). Графики TradingView — живые.</span>`;
   $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа при ${D.settings.leverage}x.`;
 }
 
@@ -242,7 +251,7 @@ function render(){
 
 document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"), tip = $("tip");
   if(t){ tip.textContent = t.getAttribute("data-tip"); tip.style.display = "block"; tip.style.left = Math.min(e.clientX+14, innerWidth-330) + "px"; tip.style.top = (e.clientY+14) + "px"; } else tip.style.display = "none"; });
-load(); setInterval(load, 20000); setInterval(tick, 1000);
+load(); setInterval(load, 5000); setInterval(tick, 1000);
 
 // ---------- price source ----------
 function feedLabel(){
