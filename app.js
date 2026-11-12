@@ -143,6 +143,7 @@ function renderEquity(){
   const e = D.equity;
   $("eq-big").textContent = eur(e.equity);
   $("eq-change").innerHTML = `<span class="${cls(e.change)}">${seur(e.change)} · ${pct(e.change_pct)}</span>`;
+  renderPnlRows();
   $("eq-sub").innerHTML = `<b class="mono">${e.multiple.toFixed(3)}x</b> от €${e.start.toFixed(0)} · кэш ${eur(e.cash)} · реализовано ${seur(D.stats.realized)} · EURUSD ${D.fx && D.fx.rate ? D.fx.rate.toFixed(5) : "—"} · ${D.engine.cycles} циклов движка`;
   $("spark").innerHTML = sparkSVG(D.curve);
   const p = Math.max(0, Math.min(1, e.multiple - 1));
@@ -153,6 +154,16 @@ function renderEquity(){
   $("k-veto").textContent = D.stats.vetoes;
   const dd = e.day_dd_pct || 0; $("k-dd").innerHTML = `<span class="${cls(dd)}">${pct(dd)}</span>`;
   $("eq-mode").textContent = `SIM · €${e.start.toFixed(0)} start`;
+}
+
+// Дневной / Недельный / Месячный PnL: реализованная часть из data.json (закрытые сделки в окне − комиссии входа открытых позиций, открытых в окне)
+// + нереализованный PnL открытых позиций — живой (пересчитывается в applyLive каждую секунду, как equity)
+function renderPnlRows(){
+  const W = D.pnl_windows, el = $("pnl-rows"); if(!el) return;
+  if(!W || !W.length){ el.innerHTML = ""; return; }
+  const u = Object.values(D.assets).reduce((s, a) => s + (a.position ? (a.position.upnl || 0) : 0), 0);
+  el.innerHTML = W.map(w => { const v = w.realized + u, p = w.start_equity ? v / w.start_equity * 100 : null;
+    return `<div class="pnl-row-w" title="с ${new Date(w.start_t*1000).toLocaleString("ru-RU",{timeZone:TZ})} (Мадрид) · equity на начало окна ${eur(w.start_equity)} (${esc(w.start_src)}) · закрыто сделок ${w.closed_trades}: ${seur(w.closed_pnl)} · комиссии входа открытых ${seur(-w.open_entry_fees)} · нереализовано ${seur(u)}"><span class="l">${esc(w.label)}</span><span class="v mono ${cls(v)}">${seur(v)}</span><span class="p mono ${cls(v)}">${pct(p)}</span></div>`; }).join("");
 }
 
 function renderDesk(){
