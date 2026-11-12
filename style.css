@@ -135,3 +135,10 @@ h2{font-size:12px;letter-spacing:.2em;font-weight:800;color:var(--mut)}
 .tip{position:fixed;pointer-events:none;z-index:10;background:#0b0f15;border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font-size:12px;display:none;max-width:320px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 @media (max-width:980px){.hero,.two,.pos-card{grid-template-columns:1fr}.watch{grid-template-columns:1fr 1fr}.honest-grid{grid-template-columns:1fr 1fr}.eq-big{font-size:44px}}
 @media (max-width:620px){.watch,.honest-grid,.kpis{grid-template-columns:1fr 1fr}.top{flex-direction:column;align-items:flex-start;gap:12px}}
+.src{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 7px;border-radius:6px;margin-right:6px;vertical-align:middle}
+.src.live{background:rgba(46,230,166,.14);color:#2ee6a6;border:1px solid rgba(46,230,166,.35)}
+.src.delayed{background:rgba(255,181,71,.12);color:#ffb547;border:1px solid rgba(255,181,71,.35)}
+.lwc{width:100%;height:300px}
+.tv-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.tv-card{padding:14px}
+@media (max-width:900px){.tv-grid{grid-template-columns:1fr}}

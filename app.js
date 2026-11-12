@@ -1,15 +1,17 @@
 "use strict";
 const TZ = "Europe/Madrid";
-const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",SP100:"#5aa9ff",SP500:"#2ee6a6",RISK:"#ff5c7a",REP:"#9fb3c8"};
-const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",SP100:"100",SP500:"500",RISK:"RM",REP:"RP"};
+const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",US30:"#5aa9ff",SP500:"#2ee6a6",RISK:"#ff5c7a",REP:"#9fb3c8"};
+const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",US30:"30",SP500:"500",RISK:"RM",REP:"RP"};
 const AGENTS = [
   {code:"LEAD",name:"Desk Lead"},{code:"GOLD",name:"Gold Bot",key:"gold"},{code:"OIL",name:"Oil Bot",key:"oil"},
-  {code:"SP100",name:"SP100 Bot",key:"sp100"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
+  {code:"US30",name:"US30 Bot",key:"us30"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
 let D = null, lastFetchOk = 0;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const usd = (v, d=2) => v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const sgn = (v, d=2) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const eur = (v, d=2) => v == null ? "—" : (v < 0 ? "−€" : "€") + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const seur = (v, d=2) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + "€" + Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
 const pct = (v, d=2) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d) + "%";
 const px = v => v == null ? "—" : Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const cls = v => v > 0 ? "up" : v < 0 ? "down" : "flat";
@@ -30,7 +32,7 @@ function setLive(){
   if(!D){ el.className="live"; tx.textContent="нет данных"; return; }
   const age = Date.now()/1000 - D.generated_t;
   el.className = "live " + (age < 900 ? "ok" : "stale");
-  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + Math.round(age/60) + " мин назад";
+  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + ((D.live_feed||{}).any_live ? "IC Markets LIVE · " : "Yahoo delayed · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + Math.round(age/60) + " мин назад";
 }
 
 function tick(){
@@ -70,9 +72,9 @@ function sparkSVG(pts, w=800, h=96){
 
 function renderEquity(){
   const e = D.equity;
-  $("eq-big").textContent = usd(e.equity);
-  $("eq-change").innerHTML = `<span class="${cls(e.change)}">${sgn(e.change)} · ${pct(e.change_pct)}</span>`;
-  $("eq-sub").innerHTML = `<b class="mono">${e.multiple.toFixed(3)}x</b> от $${e.start.toFixed(0)} · кэш ${usd(e.cash)} · реализовано ${sgn(D.stats.realized)} · ${D.engine.cycles} циклов движка`;
+  $("eq-big").textContent = eur(e.equity);
+  $("eq-change").innerHTML = `<span class="${cls(e.change)}">${seur(e.change)} · ${pct(e.change_pct)}</span>`;
+  $("eq-sub").innerHTML = `<b class="mono">${e.multiple.toFixed(3)}x</b> от €${e.start.toFixed(0)} · кэш ${eur(e.cash)} · реализовано ${seur(D.stats.realized)} · EURUSD ${D.fx && D.fx.rate ? D.fx.rate.toFixed(5) : "—"} · ${D.engine.cycles} циклов движка`;
   $("spark").innerHTML = sparkSVG(D.curve);
   const p = Math.max(0, Math.min(1, e.multiple - 1));
   $("prog-fill").style.width = (p*100).toFixed(1) + "%";
@@ -81,7 +83,7 @@ function renderEquity(){
   $("k-open").textContent = Object.values(D.assets).filter(a=>a.position).length + "/" + D.settings.max_positions_total;
   $("k-veto").textContent = D.stats.vetoes;
   const dd = e.day_dd_pct || 0; $("k-dd").innerHTML = `<span class="${cls(dd)}">${pct(dd)}</span>`;
-  $("eq-mode").textContent = `SIM · $${e.start.toFixed(0)} start`;
+  $("eq-mode").textContent = `SIM · €${e.start.toFixed(0)} start`;
 }
 
 function renderDesk(){
@@ -99,13 +101,14 @@ function renderDesk(){
   $("alloc").innerHTML = as.map(a => `<div style="flex:${(a.allocation.weight||0)};background:${COLORS[a.code]}" title="${a.code}"></div>`).join("");
   $("alloc").insertAdjacentHTML("afterend", "");
   let leg = document.querySelector(".alloc-leg"); if(!leg){ leg = document.createElement("div"); leg.className="alloc-leg"; $("alloc").after(leg); }
-  leg.innerHTML = as.map(a => `<span><i style="background:${COLORS[a.code]}"></i>${a.code} ${Math.round((a.allocation.weight||0)*100)}% · ${usd(a.allocation.capital,0)}</span>`).join("");
+  leg.innerHTML = as.map(a => `<span><i style="background:${COLORS[a.code]}"></i>${a.code} ${Math.round((a.allocation.weight||0)*100)}% · ${eur(a.allocation.capital,0)}</span>`).join("");
   const s = D.settings;
   $("settings").innerHTML = [
     ["Плечо", s.leverage + "x " + (s.margin_mode||"")], ["Риск/сделка", s.risk_per_trade_pct + "%"],
     ["Дневной стоп", "−" + s.daily_stop_pct + "%"], ["Макс. позиций", s.max_positions_total],
     ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"],
-    ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"]
+    ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
+    ["Счёт", "EUR · EURUSD " + (D.fx && D.fx.rate ? D.fx.rate.toFixed(4) : "—")], ["Цены", feedLabel()]
   ].map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
   $("lev-sub").textContent = s.leverage + "x";
 }
@@ -152,14 +155,14 @@ function strip(active){ return `<div class="strip">` + AGENTS.map(g => `<span cl
 function posCard(a, p, closed){
   const lev = p.leverage || D.settings.leverage, side = p.side;
   const pnl = closed ? p.pnl : p.upnl, pp = closed ? p.pnl_pct_margin : p.upnl_pct_margin;
-  const badge = closed ? `<div class="badge-closed ${pnl>0?"g":"r"}">CLOSED ${sgn(pnl)}</div>` : `<div class="badge-closed b">OPEN ${sgn(pnl)}</div>`;
+  const badge = closed ? `<div class="badge-closed ${pnl>0?"g":"r"}">CLOSED ${seur(pnl)}</div>` : `<div class="badge-closed b">OPEN ${seur(pnl)}</div>`;
   const lv = closed ? [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.exit,t:"EXIT",c:pnl>0?"#2ee6a6":"#ff5c7a"},{v:p.sl,t:"STOP",c:"#ff5c7a",dash:"4 4"},{v:p.tp,t:"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}] : levelsOf(p);
   const trailTxt = (p.trail_events||[]).map(e=>esc(e.event)).slice(-3).join(" · ");
   const head = closed ? `Последняя закрытая сделка ${p.id} · ${esc(p.reason)}` : `Открыта ${esc(p.opened)} (Мадрид)` + (p.trailing_active ? " · трейлинг активен" : p.breakeven ? " · стоп в безубытке" : "");
   return `<article class="card pos-card">
     <div class="pos-left">
       <div class="asset"><span class="asset-name">${esc(a.label || a.code)}</span><span class="side ${side}">${side} ${lev}x</span></div>
-      <div class="asset-sub">${esc(a.symbol)} · ${esc(a.name)} · ${head}</div>
+      <div class="asset-sub">${srcBadge(a)} ${esc(a.icm_symbol||a.symbol)} · ${esc(a.name)} · ${head}</div>
       <span class="approved">✓ APPROVED by Risk Manager</span>
       <div class="levels">
         <div class="lvl"><div class="l">ENTRY</div><div class="v mono">${px(p.entry)}</div></div>
@@ -167,13 +170,13 @@ function posCard(a, p, closed){
         <div class="lvl"><div class="l">${!closed && p.trailing_active?"TRAILING STOP":"STOP"}</div><div class="v mono down">${px(p.sl)}</div></div>
         <div class="lvl"><div class="l">TAKE PROFIT</div><div class="v mono up">${px(p.tp)}</div></div>
         <div class="lvl"><div class="l">LIQUIDATION</div><div class="v mono" style="color:#ff9f43">${px(p.liq)}</div></div>
-        <div class="lvl"><div class="l">MARGIN / NOTIONAL</div><div class="v mono">${usd(p.margin)} / ${usd(p.notional,0)}</div></div>
+        <div class="lvl"><div class="l">MARGIN / NOTIONAL</div><div class="v mono">${eur(p.margin_eur ?? p.margin)} / ${usd(p.notional,0)}</div></div>
       </div>
-      <div class="pnl-row"><span class="pnl-big mono ${cls(pnl)}">${sgn(pnl)}</span><span class="mono ${cls(pp)}" style="font-size:18px;font-weight:600">${pct(pp,1)}</span><span class="m" style="color:var(--mut);font-size:12px">${closed?"нетто":"нереализ."} · к марже</span></div>
+      <div class="pnl-row"><span class="pnl-big mono ${cls(pnl)}">${seur(pnl)}</span><span class="mono ${cls(pp)}" style="font-size:18px;font-weight:600">${pct(pp,1)}</span><span class="m" style="color:var(--mut);font-size:12px">${closed?"нетто":"нереализ."} · к марже</span></div>
       ${trailTxt ? `<div style="color:var(--mut);font-size:12px;margin-top:8px">Трейлинг: ${trailTxt}</div>` : ""}
       ${strip(["LEAD", a.code, "RISK", "REP"])}
     </div>
-    <div class="chart-wrap">${badge}${candleSVG(p.candles, lv, {from_t:p.opened_t, to_t:closed?p.closed_t:null, lastLine:!closed})}</div>
+    <div class="chart-wrap">${badge}<div class="lwc" data-lwc="${closed?"closed":"open"}:${esc(a.key)}"></div></div>
   </article>`;
 }
 
@@ -183,9 +186,10 @@ function renderPositions(){
   if(!open.length){
     if(D.last_trade){ const a = D.assets[D.last_trade.bot]; html += posCard(a, D.last_trade, true); $("pos-note").textContent = "открытых позиций нет — показана последняя закрытая сделка"; }
     else { html += `<div class="empty"><div class="big">Пока ни одной сделки</div>Боты ждут сигнала по правилам 30m тренд → 15m подтверждение → 5m пересечение EMA. Ниже — реальные 5m-свечи, которые они сейчас смотрят.</div>`; $("pos-note").textContent = "открытых позиций нет"; }
-  } else $("pos-note").textContent = open.length + " открыто · обновление уровней каждые 5 мин (цикл движка)";
+  } else $("pos-note").textContent = open.length + " открыто · уровни пересчитываются каждую минуту (цикл движка)";
   html += `<div class="watch">` + as.map(a => { const ch = a.chg_24h_pct;
     return `<div class="wcard"><div class="h"><span class="n" style="color:${COLORS[a.code]}">${a.code}</span><span class="p mono">${px(a.price)}</span></div>
+    <div class="h" style="margin-top:2px">${srcBadge(a)}<span class="mono" style="font-size:11px;color:var(--mut)">${a.bid!=null?"bid "+px(a.bid)+" · ask "+px(a.ask):esc(a.symbol)+" · USD"}</span></div>
     <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
     <div class="s">${esc(a.position ? "в позиции " + a.position.side : a.status)}</div>
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
@@ -196,13 +200,13 @@ function renderCloses(){
   const T = D.trades, s = D.stats;
   $("close-count").textContent = T.length + " closes";
   $("close-stats").innerHTML = `<div class="cs"><div class="v mono">${s.winrate==null?"—":s.winrate.toFixed(0)+"%"}</div><div class="l">winrate (${s.wins}W / ${s.losses}L)</div></div>
-    <div class="cs"><div class="v mono up">${s.avg_win==null?"—":sgn(s.avg_win)}</div><div class="l">avg win</div></div>
-    <div class="cs"><div class="v mono down">${s.avg_loss==null?"—":sgn(s.avg_loss)}</div><div class="l">avg loss</div></div>`;
+    <div class="cs"><div class="v mono up">${s.avg_win==null?"—":seur(s.avg_win)}</div><div class="l">avg win</div></div>
+    <div class="cs"><div class="v mono down">${s.avg_loss==null?"—":seur(s.avg_loss)}</div><div class="l">avg loss</div></div>`;
   if(!T.length){ $("lollipop").innerHTML = `<div class="empty"><div class="big">Закрытых сделок пока нет</div>Каждое закрытие появится здесь палочкой: вверх — прибыль, вниз — убыток.</div>`; return; }
   const w = 760, h = 220, m = 18, items = T.slice(-60), mx = Math.max(...items.map(t=>Math.abs(t.pnl)), 1), mid = h/2, cw = (w-2*m)/items.length;
   let svg = `<svg viewBox="0 0 ${w} ${h}"><line x1="${m}" x2="${w-m}" y1="${mid}" y2="${mid}" stroke="#273141"/>`;
   items.forEach((t,i) => { const x = m + cw*i + cw/2, y = mid - t.pnl/mx*(mid-18), c = t.pnl>0 ? "#2ee6a6" : "#ff5c7a";
-    const tip = `${t.id} ${t.code} ${t.side} · ${sgn(t.pnl)} (${pct(t.pnl_pct_margin,1)} маржи) · ${t.reason} · ${fmtDT(t.closed_t)}`;
+    const tip = `${t.id} ${t.code} ${t.side} · ${seur(t.pnl)} (${pct(t.pnl_pct_margin,1)} маржи) · ${t.reason} · ${fmtDT(t.closed_t)}`;
     svg += `<line x1="${x}" x2="${x}" y1="${mid}" y2="${y}" stroke="${c}" stroke-width="2" opacity=".75"/><circle cx="${x}" cy="${y}" r="${Math.min(7, 3+cw/6)}" fill="${c}" data-tip="${esc(tip)}"/>`; });
   $("lollipop").innerHTML = svg + "</svg>";
 }
@@ -211,14 +215,15 @@ function renderTimeline(){
   const T = D.trades;
   if(!T.length){ $("timeline").innerHTML = `<div class="empty" style="margin-left:-18px"><div class="big">Пока пусто</div>Сюда попадут самые крупные закрытия — с активом, направлением, временем и причиной выхода.</div>`; return; }
   const big = [...T].sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl)).slice(0,6).sort((a,b)=>b.closed_t-a.closed_t);
-  $("timeline").innerHTML = big.map(t => `<div class="tl ${t.pnl>0?"g":"r"}"><div class="row"><span class="w">${t.id} · ${t.code} <span class="side ${t.side}" style="font-size:10px;padding:2px 6px">${t.side} ${t.leverage}x</span></span><span class="mono ${cls(t.pnl)}" style="font-weight:700">${sgn(t.pnl)}</span></div>
+  $("timeline").innerHTML = big.map(t => `<div class="tl ${t.pnl>0?"g":"r"}"><div class="row"><span class="w">${t.id} · ${t.code} <span class="side ${t.side}" style="font-size:10px;padding:2px 6px">${t.side} ${t.leverage}x</span></span><span class="mono ${cls(t.pnl)}" style="font-weight:700">${seur(t.pnl)}</span></div>
     <div class="m">${fmtDT(t.closed_t)} · ${px(t.entry)} → ${px(t.exit)} · ${esc(t.reason)} · ${pct(t.pnl_pct_margin,1)} маржи</div></div>`).join("");
 }
 
 function renderTicker(){
   const items = [];
-  Object.values(D.assets).forEach(a => items.push(`<span class="tk"><b style="color:${COLORS[a.code]}">${a.code}</b><span class="mono">${px(a.price)}</span> <span class="mono ${cls(a.chg_24h_pct)}">${pct(a.chg_24h_pct)}</span></span>`));
-  items.push(`<span class="tk sim">SIM · ILLUSTRATIVE FILLS · NOT A REAL ACCOUNT</span>`);
+  Object.values(D.assets).forEach(a => items.push(`<span class="tk"><b style="color:${COLORS[a.code]}">${a.code}</b><span class="mono">${px(a.price)}</span> <span class="mono" style="color:${a.live?"#2ee6a6":"#ffb547"}">${a.live?"LIVE":"DELAYED"}</span> <span class="mono ${cls(a.chg_24h_pct)}">${pct(a.chg_24h_pct)}</span></span>`));
+  if(D.fx && D.fx.rate) items.push(`<span class="tk"><b>EURUSD</b><span class="mono">${D.fx.rate.toFixed(5)}</span></span>`);
+  items.push(`<span class="tk sim">SIM · ILLUSTRATIVE FILLS · NOT A REAL ACCOUNT · ACCOUNT IN EUR</span>`);
   AGENTS.forEach(g => { const s = agentState(g.code); items.push(`<span class="tk"><b>${g.code}</b>${esc(s.s.length>80?s.s.slice(0,80)+"…":s.s)}</span>`); });
   items.push(`<span class="tk sim">SIM · ILLUSTRATIVE FILLS · NOT A REAL ACCOUNT</span>`);
   const one = items.join("");
@@ -226,15 +231,70 @@ function renderTicker(){
 }
 
 function renderFoot(){
-  $("foot").innerHTML = `<span>Данные: Yahoo Finance (5m/15m/30m) · движок: цикл ${Math.round(D.engine.cycle_seconds/60)} мин, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 30 с; GitHub Pages CDN может задерживать до ~10 мин.</span>`;
-  $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа.`;
+  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 20 с; публикация ~каждые 45 с; CDN GitHub Pages может задерживать на несколько минут. Графики TradingView — живые.</span>`;
+  $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа при ${D.settings.leverage}x.`;
 }
 
 function render(){
-  [renderAgents, renderEquity, renderDesk, renderPositions, renderCloses, renderTimeline, renderTicker, renderFoot].forEach(f => { try{ f(); }catch(e){ console.error(f.name, e); } });
+  [renderAgents, renderEquity, renderDesk, renderPositions, renderLWC, renderCloses, renderTimeline, renderTicker, renderFoot, renderTV].forEach(f => { try{ f(); }catch(e){ console.error(f.name, e); } });
   tick();
 }
 
 document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"), tip = $("tip");
   if(t){ tip.textContent = t.getAttribute("data-tip"); tip.style.display = "block"; tip.style.left = Math.min(e.clientX+14, innerWidth-330) + "px"; tip.style.top = (e.clientY+14) + "px"; } else tip.style.display = "none"; });
-load(); setInterval(load, 30000); setInterval(tick, 1000);
+load(); setInterval(load, 20000); setInterval(tick, 1000);
+
+// ---------- price source ----------
+function feedLabel(){
+  const f = D.live_feed || {};
+  if(f.any_live) return "IC Markets LIVE (cTrader FIX)";
+  return "Yahoo (задержка) · IC Markets: " + ({DOWN:"нет соединения",NOT_RUNNING:"фидер не запущен",AUTH_REJECTED:"логин отклонён",CONNECTING:"подключение",LOGON_SENT:"логин…",LIVE_NO_TICKS:"нет тиков",STOPPED:"остановлен"}[f.status] || f.status || "—");
+}
+function srcBadge(a){ return a.live ? `<span class="src live">● IC MARKETS LIVE</span>` : `<span class="src delayed">YAHOO DELAYED</span>`; }
+
+// ---------- TradingView Lightweight Charts (наш график позиции) ----------
+const LW = {};
+function renderLWC(){
+  if(!window.LightweightCharts) return;
+  document.querySelectorAll("[data-lwc]").forEach(el => {
+    const [kind, key] = el.getAttribute("data-lwc").split(":");
+    const a = D.assets[key], p = kind === "closed" ? D.last_trade : a && a.position;
+    if(!p) return;
+    const id = kind + ":" + key;
+    let o = LW[id];
+    if(!o || o.el !== el){
+      const ch = LightweightCharts.createChart(el, {height: 300, layout:{background:{type:"solid",color:"transparent"}, textColor:"#8b97a8", fontFamily:"JetBrains Mono"},
+        grid:{vertLines:{color:"#141b24"}, horzLines:{color:"#141b24"}}, rightPriceScale:{borderColor:"#1e2834"},
+        timeScale:{borderColor:"#1e2834", timeVisible:true, secondsVisible:false}, localization:{timeFormatter: t => fmtT(t)}, crosshair:{mode:0}});
+      const s = ch.addCandlestickSeries({upColor:"#2ee6a6", downColor:"#ff5c7a", borderVisible:false, wickUpColor:"#2ee6a6", wickDownColor:"#ff5c7a"});
+      o = LW[id] = {el, ch, s, lines:[]};
+      new ResizeObserver(() => ch.applyOptions({width: el.clientWidth})).observe(el);
+    }
+    const c = (p.candles || []).map(b => ({time:b.t, open:b.o, high:b.h, low:b.l, close:b.c}));
+    o.s.setData(c);
+    o.lines.forEach(l => o.s.removePriceLine(l)); o.lines = [];
+    const L = kind === "closed" ? [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.exit,t:"EXIT",c:p.pnl>0?"#2ee6a6":"#ff5c7a"},{v:p.sl,t:"STOP",c:"#ff5c7a",dash:1},{v:p.tp,t:"TP",c:"#2ee6a6",dash:1},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:2}]
+      : levelsOf(p).map(x => ({v:x.v, t:x.t, c:x.c, dash: x.dash ? (x.t==="LIQ"?2:1) : 0}));
+    L.filter(x => x.v != null).forEach(x => o.lines.push(o.s.createPriceLine({price:x.v, color:x.c, lineWidth:x.t==="TRAIL"||x.t==="STOP"?2:1, lineStyle:x.dash||0, axisLabelVisible:true, title:x.t})));
+    if(p.opened_t) o.s.setMarkers([{time: c.length ? c.reduce((m,b)=> b.time <= p.opened_t ? b.time : m, c[0].time) : p.opened_t, position: p.side==="LONG"?"belowBar":"aboveBar", color:"#5aa9ff", shape: p.side==="LONG"?"arrowUp":"arrowDown", text:"IN"}]);
+    if(!o.fitted){ o.ch.timeScale().fitContent(); o.fitted = true; }
+  });
+}
+
+// ---------- TradingView Advanced Chart (живые виджеты) ----------
+let TV_DONE = false;
+function renderTV(){
+  if(TV_DONE) return; TV_DONE = true;
+  const box = $("tv-grid"); if(!box) return;
+  Object.values(D.assets).forEach(a => {
+    const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",us30:"ICMARKETS:US30",sp500:"ICMARKETS:US500"}[a.key]);
+    const w = document.createElement("div"); w.className = "card tv-card";
+    w.innerHTML = `<div class="card-head"><span class="eyebrow" style="color:${COLORS[a.code]}">${a.code} · ${esc(sym)}</span><span class="pill">TradingView · live</span></div><div class="tradingview-widget-container" style="height:420px"><div class="tradingview-widget-container__widget" style="height:100%"></div></div>`;
+    box.appendChild(w);
+    const s = document.createElement("script"); s.type = "text/javascript"; s.async = true;
+    s.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    s.text = JSON.stringify({autosize:true, symbol:sym, interval:"5", timezone:"Europe/Madrid", theme:"dark", style:"1", locale:"ru",
+      backgroundColor:"rgba(10,14,20,1)", gridColor:"rgba(30,40,52,0.6)", hide_side_toolbar:true, allow_symbol_change:true, withdateranges:true, studies:["STD;EMA"], support_host:"https://www.tradingview.com"});
+    w.querySelector(".tradingview-widget-container").appendChild(s);
+  });
+}
