@@ -231,7 +231,7 @@ function renderTicker(){
 }
 
 function renderFoot(){
-  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 20 с; публикация ~каждые 45 с; CDN GitHub Pages может задерживать на несколько минут. Графики TradingView — живые.</span>`;
+  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 20 с; публикация ~каждые 60 с; CDN GitHub Pages может задерживать на несколько минут. Графики TradingView — живые.</span>`;
   $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа при ${D.settings.leverage}x.`;
 }
 
