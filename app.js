@@ -161,7 +161,10 @@ function renderEquity(){
 function renderPnlRows(){
   const W = D.pnl_windows, el = $("pnl-rows"); if(!el) return;
   if(!W || !W.length){ el.innerHTML = ""; return; }
-  const u = Object.values(D.assets).reduce((s, a) => s + (a.position ? (a.position.upnl || 0) : 0), 0);
+  // нереализованное — то же, что заложено в строку equity (equity − кэш): после живого пересчёта это Σ upnl по live.json,
+  // до него — снимок движка; так строки всегда согласованы с equity
+  const e = D.equity, u = (e && e.cash != null && e.equity != null) ? e.equity - e.cash
+    : Object.values(D.assets).reduce((s, a) => s + (a.position ? (a.position.upnl || 0) : 0), 0);
   el.innerHTML = W.map(w => { const v = w.realized + u, p = w.start_equity ? v / w.start_equity * 100 : null;
     return `<div class="pnl-row-w" title="с ${new Date(w.start_t*1000).toLocaleString("ru-RU",{timeZone:TZ})} (Мадрид) · equity на начало окна ${eur(w.start_equity)} (${esc(w.start_src)}) · закрыто сделок ${w.closed_trades}: ${seur(w.closed_pnl)} · комиссии входа открытых ${seur(-w.open_entry_fees)} · нереализовано ${seur(u)}"><span class="l">${esc(w.label)}</span><span class="v mono ${cls(v)}">${seur(v)}</span><span class="p mono ${cls(v)}">${pct(p)}</span></div>`; }).join("");
 }
