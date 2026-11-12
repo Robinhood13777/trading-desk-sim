@@ -115,7 +115,7 @@ function renderDesk(){
   $("settings").innerHTML = [
     ["Плечо", s.leverage + "x " + (s.margin_mode||"")], ["Риск/сделка", s.risk_per_trade_pct + "%"],
     ["Дневной стоп", "−" + s.daily_stop_pct + "%"], ["Макс. позиций", s.max_positions_total],
-    ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"],
+    ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"], ["Трейлинг-тейк", s.trailing_tp && s.trailing_tp.enabled ? "вкл · с TP " + s.trailing_tp.activate_at_atr + " ATR, шаг " + s.trailing_tp.tp_step_atr + " ATR" : "выкл"],
     ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
     ["Счёт", "EUR · EURUSD " + (D.fx && D.fx.rate ? D.fx.rate.toFixed(4) : "—")], ["Цены", feedLabel()]
   ].map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
@@ -153,8 +153,9 @@ function candleSVG(c, levels, opt){
 }
 
 function levelsOf(p){
-  const L = [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.tp,t:"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}];
-  if(p.sl_initial != null && p.sl != null && Math.abs(p.sl_initial - p.sl) > 1e-9){ L.push({v:p.sl_initial,t:"SL init",c:"#6b3b48",dash:"3 4"}); L.push({v:p.sl,t:p.trailing_active?"TRAIL":"SL BE",c:"#ff5c7a"}); }
+  const L = [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.tp,t:p.trail_tp_active?"TTP":"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}];
+  if(p.sl_initial != null && p.sl != null && Math.abs(p.sl_initial - p.sl) > 1e-9){ L.push({v:p.sl_initial,t:"SL init",c:"#6b3b48",dash:"3 4"}); L.push({v:p.sl,t:p.trail_tp_active?"TTP STOP":p.trailing_active?"TRAIL":"SL BE",c:"#ff5c7a"}); }
+  if(p.trail_tp_active && p.tp_initial != null && Math.abs(p.tp_initial - p.tp) > 1e-9) L.push({v:p.tp_initial,t:"TP init",c:"#1f6b55",dash:"3 4"});
   else L.push({v:p.sl,t:"STOP",c:"#ff5c7a"});
   return L;
 }
@@ -167,17 +168,17 @@ function posCard(a, p, closed){
   const badge = closed ? `<div class="badge-closed ${pnl>0?"g":"r"}">CLOSED ${seur(pnl)}</div>` : `<div class="badge-closed b">OPEN ${seur(pnl)}</div>`;
   const lv = closed ? [{v:p.entry,t:"ENTRY",c:"#5aa9ff"},{v:p.exit,t:"EXIT",c:pnl>0?"#2ee6a6":"#ff5c7a"},{v:p.sl,t:"STOP",c:"#ff5c7a",dash:"4 4"},{v:p.tp,t:"TP",c:"#2ee6a6",dash:"6 4"},{v:p.liq,t:"LIQ",c:"#ff9f43",dash:"2 3"}] : levelsOf(p);
   const trailTxt = (p.trail_events||[]).map(e=>esc(e.event)).slice(-3).join(" · ");
-  const head = closed ? `Последняя закрытая сделка ${p.id} · ${esc(p.reason)}` : `Открыта ${esc(p.opened)} (Мадрид)` + (p.trailing_active ? " · трейлинг активен" : p.breakeven ? " · стоп в безубытке" : "");
+  const head = closed ? `Последняя закрытая сделка ${p.id} · ${esc(p.reason)}` : `Открыта ${esc(p.opened)} (Мадрид)` + (p.trail_tp_active ? " · трейлинг-тейк активен" : p.trailing_active ? " · трейлинг активен" : p.breakeven ? " · стоп в безубытке" : "");
   return `<article class="card pos-card">
     <div class="pos-left">
       <div class="asset"><span class="asset-name">${esc(a.label || a.code)}</span><span class="side ${side}">${side} ${lev}x</span></div>
       <div class="asset-sub">${srcBadge(a)} ${esc(a.icm_symbol||a.symbol)} · ${esc(a.name)} · ${head}</div>
-      <span class="approved">✓ APPROVED by Risk Manager</span>
+      <span class="approved">✓ APPROVED by Risk Manager</span>${!closed && p.trail_tp_active ? ` <span class="pill g ttp-badge" title="TP достигнут: позиция не закрыта, TP и стоп идут за лучшей ценой (шаг 1 ATR)">трейлинг-тейк</span>` : ""}
       <div class="levels">
         <div class="lvl"><div class="l">ENTRY</div><div class="v mono">${px(p.entry)}</div></div>
         <div class="lvl"><div class="l">${closed?"EXIT":"PRICE"}</div><div class="v mono">${px(closed?p.exit:p.price)}</div></div>
         <div class="lvl"><div class="l">${!closed && p.trailing_active?"TRAILING STOP":"STOP"}</div><div class="v mono down">${px(p.sl)}</div></div>
-        <div class="lvl"><div class="l">TAKE PROFIT</div><div class="v mono up">${px(p.tp)}</div></div>
+        <div class="lvl"><div class="l">${!closed && p.trail_tp_active?"TRAILING TAKE":"TAKE PROFIT"}</div><div class="v mono up">${px(p.tp)}</div></div>
         <div class="lvl"><div class="l">LIQUIDATION</div><div class="v mono" style="color:#ff9f43">${px(p.liq)}</div></div>
         <div class="lvl"><div class="l">MARGIN / NOTIONAL</div><div class="v mono">${eur(p.margin_eur ?? p.margin)} / ${usd(p.notional,0)}</div></div>
       </div>
@@ -200,7 +201,7 @@ function renderPositions(){
     return `<div class="wcard"><div class="h"><span class="n" style="color:${COLORS[a.code]}">${a.code}</span><span class="p mono">${px(a.price)}</span></div>
     <div class="h" style="margin-top:2px">${srcBadge(a)}<span class="mono" style="font-size:11px;color:var(--mut)">${a.bid!=null?"bid "+px(a.bid)+" · ask "+px(a.ask):esc(a.symbol)+" · USD"}</span></div>
     <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
-    <div class="s">${esc(a.position ? "в позиции " + a.position.side : a.status)}</div>
+    <div class="s">${esc(a.position ? "в позиции " + a.position.side + (a.position.trail_tp_active ? " · трейлинг-тейк" : "") : a.status)}</div>
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
   $("positions").innerHTML = html;
 }
