@@ -179,7 +179,7 @@ function renderDesk(){
     ["Плечо", s.leverage + "x " + (s.margin_mode||"")], ["Риск/сделка", s.risk_per_trade_pct + "%"],
     ["Дневной стоп", "−" + s.daily_stop_pct + "%"], ["Макс. позиций", s.max_positions_total],
     ["SL / TP", s.sl_atr + " / " + s.tp_atr + " ATR(15m)"], ["Трейлинг", s.trailing ? "вкл · BE @1 ATR" : "выкл"], ["Трейлинг-тейк", s.trailing_tp && s.trailing_tp.enabled ? "вкл · с TP " + s.trailing_tp.activate_at_atr + " ATR, шаг " + s.trailing_tp.tp_step_atr + " ATR" : "выкл"],
-    ["Фильтры", D.filters ? (D.filters.enabled ? "вкл" : "выкл (показ)") + " · новости ±" + D.filters.before_min + " мин · сессии" : "—"], ["Комиссия + slip", s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
+    ["Фильтры", D.filters ? (D.filters.enabled ? "вкл" : "выкл (показ)") + " · новости ±" + D.filters.before_min + " мин · сессии" : "—"], ["Издержки (IC Markets)", s.costs && Object.keys(s.costs).length ? Object.entries(s.costs).map(([k,c])=>(CODES_RU[k]||k)+" "+c.per_side_bps.toFixed(2)).join(" · ") + " bp/сторона" : s.fee_bps + " + " + s.slip_bps + " bp"], ["Таймфреймы", "5m · 15m · 30m"],
     ["Счёт", "EUR · EURUSD " + (D.fx && D.fx.rate ? D.fx.rate.toFixed(4) : "—")], ["Цены", feedLabel()]
   ].map(([k,v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join("");
   $("lev-sub").textContent = s.leverage + "x";
@@ -282,6 +282,7 @@ function renderPositions(){
   Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
 }
 
+const CODES_RU = {gold:"GOLD", oil:"OIL", us30:"US30", sp500:"SP500"};
 function fltLine(a){
   const f = a.filter; if(!f || !f.text) return "";
   const on = D.filters && D.filters.enabled;
