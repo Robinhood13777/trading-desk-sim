@@ -19,21 +19,76 @@ const fmtT = (t, opt) => new Intl.DateTimeFormat("ru-RU", Object.assign({timeZon
 const fmtDT = t => fmtT(t,{day:"2-digit",month:"short"});
 const hms = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60; return [h,m,x].map(n=>String(n).padStart(2,"0")).join(":"); };
 
-const FAST_SRC = "https://5-180-180-55.sslip.io/data.json"; // VPS, обновление каждые 5 с
+const FAST_SRC = "https://5-180-180-55.sslip.io/data.json"; // VPS: снимок движка (выкладка каждые 5 с, движок — цикл 10 с)
+const LIVE_SRC = "https://5-180-180-55.sslip.io/live.json"; // VPS: только котировки IC Markets, пишутся каждую 1 с
 let SRC = "VPS";
+let LQ = null, lqOk = 0, lqBusy = false, loadBusy = false;
 async function getJSON(u, ms){
   const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
   try{ const r = await fetch(u + "?t=" + Date.now(), {cache:"no-store", signal:c.signal}); if(!r.ok) throw new Error(r.status); return await r.json(); }
   finally{ clearTimeout(t); }
 }
 async function load(){
+  if(loadBusy) return; loadBusy = true;
   try{
     let d = null;
     try{ d = await getJSON(FAST_SRC, 4000); SRC = "VPS"; }
     catch(e){ d = await getJSON("data.json", 8000); SRC = "GitHub"; }
     if(D && d.generated_t < D.generated_t) return;
-    D = d; lastFetchOk = Date.now(); render();
+    D = d; lastFetchOk = Date.now(); applyLive(); render();
   }catch(e){ console.warn("data.json", e); setLive(); }
+  finally{ loadBusy = false; }
+}
+// Живые котировки раз в 1 с: цена, плавающий PnL и эквити пересчитываются в браузере по формуле движка
+// (unreal: (mid − entry) × qty × dir, не хуже −маржи, USD → EUR по EURUSD; equity = cash + Σ unreal).
+// Стопы, тейки, сделки и кэш считает только движок (цикл 10 с).
+async function loadLive(){
+  if(lqBusy) return; lqBusy = true;
+  try{
+    const q = await getJSON(LIVE_SRC, 900);
+    if(!q || !q.quotes || q.status !== "LIVE") throw new Error("no live");
+    if(LQ && q.written_t <= LQ.written_t) return;
+    LQ = q; lqOk = Date.now();
+    if(D && applyLive()) renderFast();
+  }catch(e){ /* остаёмся на data.json */ }
+  finally{ lqBusy = false; setLive(); }
+}
+function liveFresh(){ return LQ && (Date.now()/1000 - LQ.written_t) < 10; }
+function applyLive(){
+  if(!D || !liveFresh()) return false;
+  if(LQ.written_t <= D.generated_t) return false;      // снимок движка свежее котировки
+  const Q = LQ.quotes, fxq = Q.eurusd && Q.eurusd.mid;
+  const fx = fxq || (D.fx && D.fx.rate) || 1;
+  if(fxq && D.fx) D.fx.rate = fxq;
+  let u = 0, any = false;
+  Object.values(D.assets).forEach(a => {
+    const q = Q[a.key]; if(!q || q.mid == null) return;
+    if(!a.live) return;                                   // движок сейчас не на живом фиде этого символа — не подменяем
+    a.price = q.mid; a.bid = q.bid; a.ask = q.ask; a.quote_t = q.t; any = true;
+    const bump = c => { if(!c || !c.length) return; const b = c[c.length-1], end = Math.floor(b.t/300)*300 + 300;
+      if(q.t >= b.t && q.t < end){ b.c = q.mid; if(q.mid > b.h) b.h = q.mid; if(q.mid < b.l) b.l = q.mid; } };
+    bump(a.candles);
+    const p = a.position;
+    if(p){
+      bump(p.candles);
+      const d = p.side === "LONG" ? 1 : -1;
+      let x = (q.mid - p.entry) * p.qty * d;
+      if(p.margin) x = Math.max(x, -p.margin);
+      p.price = q.mid; p.upnl = x / fx;
+      p.upnl_pct_margin = p.margin ? x / p.margin * 100 : null;
+    }
+  });
+  Object.values(D.assets).forEach(a => { if(a.position) u += a.position.upnl || 0; });
+  const e = D.equity;
+  if(e && e.cash != null){
+    e.equity = e.cash + u; e.change = e.equity - e.start; e.change_pct = (e.equity / e.start - 1) * 100; e.multiple = e.equity / e.start;
+    if(e.day_start) e.day_dd_pct = (e.equity / e.day_start - 1) * 100;
+  }
+  return any;
+}
+function renderFast(){
+  [renderAgents, renderEquity, renderPositions, renderLWC, renderTicker].forEach(f => { try{ f(); }catch(e){ console.error(f.name, e); } });
+  tick();
 }
 
 function setLive(){
@@ -41,7 +96,11 @@ function setLive(){
   if(!D){ el.className="live"; tx.textContent="нет данных"; return; }
   const age = Date.now()/1000 - D.generated_t;
   el.className = "live " + (age < 900 ? "ok" : "stale");
-  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + ((D.live_feed||{}).any_live ? "IC Markets LIVE · " : "Yahoo delayed · ") + "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + (age < 120 ? Math.round(age) + " с назад" : Math.round(age/60) + " мин назад") + " · " + SRC;
+  const lv = liveFresh() && LQ.written_t > D.generated_t;
+  const qa = lv ? Math.max(0, Date.now()/1000 - LQ.written_t) : null;
+  tx.textContent = (age < 900 ? "LIVE SIM · " : "STALE · ") + ((D.live_feed||{}).any_live ? "IC Markets LIVE · " : "Yahoo delayed · ")
+    + (lv ? "цены " + Math.round(qa) + " с назад · VPS · движок " + (age < 120 ? Math.round(age) + " с" : Math.round(age/60) + " мин") + " назад"
+          : "данные " + fmtT(D.generated_t,{second:"2-digit"}) + " (Мадрид) · " + (age < 120 ? Math.round(age) + " с назад" : Math.round(age/60) + " мин назад") + " · " + SRC);
 }
 
 function tick(){
@@ -203,7 +262,10 @@ function renderPositions(){
     <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
     <div class="s">${esc(a.position ? "в позиции " + a.position.side + (a.position.trail_tp_active ? " · трейлинг-тейк" : "") : a.status)}</div>
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
+  const keep = {}; document.querySelectorAll("#positions [data-lwc]").forEach(el => keep[el.getAttribute("data-lwc")] = el);
   $("positions").innerHTML = html;
+  document.querySelectorAll("#positions [data-lwc]").forEach(el => { const o = keep[el.getAttribute("data-lwc")]; if(o) el.replaceWith(o); });
+  Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
 }
 
 function renderCloses(){
@@ -241,7 +303,7 @@ function renderTicker(){
 }
 
 function renderFoot(){
-  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Страница опрашивает data.json каждые 5 с с VPS (выкладка каждые 5 с); если VPS недоступен — копия на GitHub Pages (~60 с + задержка CDN). Графики TradingView — живые.</span>`;
+  $("foot").innerHTML = `<span>Цены: ${esc(feedLabel())} · история индикаторов: Yahoo Finance (ребейз к CFD) · движок: цикл ${D.engine.cycle_seconds} с, последний ${esc(D.engine.last_cycle)} (Мадрид) · data.json ${esc(D.generated_at)} (Мадрид)</span><span>Цены и плавающий PnL на странице — каждую 1 с (live.json с VPS). Стопы, тейки, сделки и кэш считает движок каждые 10 с; data.json опрашивается каждые 5 с. Если VPS недоступен — копия на GitHub Pages (~60 с + задержка CDN). Графики TradingView — живые.</span>`;
   $("h-liq").textContent = `Ликвидация ≈ ${(100/D.settings.leverage - D.settings.maintenance_margin_pct).toFixed(1)}% от входа при ${D.settings.leverage}x.`;
 }
 
@@ -252,7 +314,7 @@ function render(){
 
 document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"), tip = $("tip");
   if(t){ tip.textContent = t.getAttribute("data-tip"); tip.style.display = "block"; tip.style.left = Math.min(e.clientX+14, innerWidth-330) + "px"; tip.style.top = (e.clientY+14) + "px"; } else tip.style.display = "none"; });
-load(); setInterval(load, 5000); setInterval(tick, 1000);
+load(); setInterval(load, 5000); loadLive(); setInterval(loadLive, 1000); setInterval(tick, 1000);
 
 // ---------- price source ----------
 function feedLabel(){
