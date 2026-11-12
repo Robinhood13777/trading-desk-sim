@@ -160,13 +160,22 @@ function renderEquity(){
 // + нереализованный PnL открытых позиций — живой (пересчитывается в applyLive каждую секунду, как equity)
 function renderPnlRows(){
   const W = D.pnl_windows, el = $("pnl-rows"); if(!el) return;
-  if(!W || !W.length){ el.innerHTML = ""; return; }
+  if(!W || !W.length){ el.innerHTML = ""; return; }   // (строку «Текущий» без окон тоже не показываем — данные ещё не пришли)
   // нереализованное — то же, что заложено в строку equity (equity − кэш): после живого пересчёта это Σ upnl по live.json,
   // до него — снимок движка; так строки всегда согласованы с equity
   const e = D.equity, u = (e && e.cash != null && e.equity != null) ? e.equity - e.cash
     : Object.values(D.assets).reduce((s, a) => s + (a.position ? (a.position.upnl || 0) : 0), 0);
   el.innerHTML = W.map(w => { const v = w.realized + u, p = w.start_equity ? v / w.start_equity * 100 : null;
-    return `<div class="pnl-row-w" title="с ${new Date(w.start_t*1000).toLocaleString("ru-RU",{timeZone:TZ})} (Мадрид) · equity на начало окна ${eur(w.start_equity)} (${esc(w.start_src)}) · закрыто сделок ${w.closed_trades}: ${seur(w.closed_pnl)} · комиссии входа открытых ${seur(-w.open_entry_fees)} · нереализовано ${seur(u)}"><span class="l">${esc(w.label)}</span><span class="v mono ${cls(v)}">${seur(v)}</span><span class="p mono ${cls(v)}">${pct(p)}</span></div>`; }).join("");
+    return `<div class="pnl-row-w" title="с ${new Date(w.start_t*1000).toLocaleString("ru-RU",{timeZone:TZ})} (Мадрид) · equity на начало окна ${eur(w.start_equity)} (${esc(w.start_src)}) · закрыто сделок ${w.closed_trades}: ${seur(w.closed_pnl)} · комиссии входа открытых ${seur(-w.open_entry_fees)} · нереализовано ${seur(u)}"><span class="l">${esc(w.label)}</span><span class="v mono ${cls(v)}">${seur(v)}</span><span class="p mono ${cls(v)}">${pct(p)}</span></div>`; }).join("") + curRow(u);
+}
+
+// «Текущий»: нереализованный PnL всех открытых позиций = equity − кэш (то же, что в строке equity, живое каждую 1 с);
+// % — к кэшу, т.е. к equity без нереализованного. Нет позиций -> 0,00 €
+function curRow(u){
+  const e = D.equity, n = Object.values(D.assets).filter(a => a.position).length;
+  const v = n ? (Math.abs(u) < 0.005 ? 0 : u) : 0, base = e && e.cash ? e.cash : null, p = base ? v / base * 100 : null;
+  const tip = `Нереализованный PnL открытых позиций (${n}) = equity − кэш, обновляется каждую секунду по живым котировкам. % — от кэша ${eur(base)} (equity без нереализованного). Комиссии входа уже списаны из кэша и сюда не входят.`;
+  return `<div class="pnl-row-w" title="${esc(tip)}"><span class="l">Текущий</span><span class="v mono ${cls(v)}">${n ? seur(v) : "€0.00"}</span><span class="p mono ${cls(v)}">${pct(p)}</span></div>`;
 }
 
 function renderDesk(){
