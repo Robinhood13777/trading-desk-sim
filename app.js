@@ -1,10 +1,10 @@
 "use strict";
 const TZ = "Europe/Madrid";
-const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",US30:"#5aa9ff",SP500:"#2ee6a6",RISK:"#ff5c7a",REP:"#9fb3c8"};
-const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",US30:"30",SP500:"500",RISK:"RM",REP:"RP"};
+const COLORS = {LEAD:"#a98bff",GOLD:"#ffcc4d",OIL:"#ff8a4d",US30:"#5aa9ff",SP500:"#2ee6a6",NAS100:"#c77dff",RISK:"#ff5c7a",REP:"#9fb3c8"};
+const AV = {LEAD:"DL",GOLD:"Au",OIL:"WTI",US30:"30",SP500:"500",NAS100:"NDX",RISK:"RM",REP:"RP"};
 const AGENTS = [
   {code:"LEAD",name:"Desk Lead"},{code:"GOLD",name:"Gold Bot",key:"gold"},{code:"OIL",name:"Oil Bot",key:"oil"},
-  {code:"US30",name:"US30 Bot",key:"us30"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
+  {code:"US30",name:"US30 Bot",key:"us30"},{code:"SP500",name:"SP500 Bot",key:"sp500"},{code:"NAS100",name:"NAS100 Bot",key:"nas100"},{code:"RISK",name:"Risk Manager"},{code:"REP",name:"Reporter"}];
 let D = null, lastFetchOk = 0;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -116,7 +116,8 @@ function agentState(code){
   if(code === "REP") return {s: "сделок " + D.stats.trades + ", winrate " + (D.stats.winrate ?? "—") + "%", d:"on"};
   const k = AGENTS.find(x=>x.code===code).key, x = a[k];
   if(!x) return {s:"—", d:""};
-  return {s: x.status || "—", d: x.position ? "pos" : (!x.market_open ? "" : /REJECT|нет данных/.test(x.status) ? "warn" : "on")};
+  if(x.paused && !x.position) return {s: "ПАУЗА — новые входы выключены" + (x.paused_note ? " · " + x.paused_note : ""), d:""};
+  return {s: (x.paused ? "ПАУЗА (только сопровождение) · " : "") + x.status || "—", d: x.position ? "pos" : (!x.market_open ? "" : /REJECT|нет данных/.test(x.status) ? "warn" : "on")};
 }
 
 function renderAgents(){
@@ -272,7 +273,7 @@ function renderPositions(){
   html += `<div class="watch">` + as.map(a => { const ch = a.chg_24h_pct;
     return `<div class="wcard"><div class="h"><span class="n" style="color:${COLORS[a.code]}">${a.code}</span><span class="p mono">${px(a.price)}</span></div>
     <div class="h" style="margin-top:2px">${srcBadge(a)}<span class="mono" style="font-size:11px;color:var(--mut)">${a.bid!=null?"bid "+px(a.bid)+" · ask "+px(a.ask):esc(a.symbol)+" · USD"}</span></div>
-    <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
+    <div class="h" style="margin-top:2px"><span class="mono ${cls(ch)}" style="font-size:12px">${pct(ch)} 24ч</span><span>${a.paused?`<span class="tag closed" title="${esc(a.paused_note||"")}">⏸ пауза</span> `:""}${a.market_open?`<span class="tag ${a.trend_30m||""}">30m ${a.trend_30m||"—"}</span>`:`<span class="tag closed">рынок закрыт</span>`}</span></div>
     <div class="s">${esc(a.position ? "в позиции " + a.position.side + (a.position.trail_tp_active ? " · трейлинг-тейк" : "") : a.status)}</div>
     ${fltLine(a)}
     ${candleSVG(a.candles.slice(-60), a.position ? levelsOf(a.position) : [], {mini:true,w:300,h:90})}</div>`; }).join("") + `</div>`;
@@ -282,7 +283,7 @@ function renderPositions(){
   Object.keys(LW).forEach(id => { if(!document.body.contains(LW[id].el)){ try{ LW[id].ch.remove(); }catch(e){} delete LW[id]; } });
 }
 
-const CODES_RU = {gold:"GOLD", oil:"OIL", us30:"US30", sp500:"SP500"};
+const CODES_RU = {gold:"GOLD", oil:"OIL", us30:"US30", sp500:"SP500", nas100:"NAS100"};
 function fltLine(a){
   const f = a.filter; if(!f || !f.text) return "";
   const on = D.filters && D.filters.enabled;
@@ -381,7 +382,7 @@ function renderTV(){
   if(TV_DONE) return; TV_DONE = true;
   const box = $("tv-grid"); if(!box) return;
   Object.values(D.assets).forEach(a => {
-    const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",us30:"ICMARKETS:US30",sp500:"ICMARKETS:US500"}[a.key]);
+    const sym = a.tv_symbol || ({gold:"ICMARKETS:XAUUSD",oil:"ICMARKETS:XTIUSD",us30:"ICMARKETS:US30",sp500:"ICMARKETS:US500",nas100:"ICMARKETS:USTEC"}[a.key]);
     const w = document.createElement("div"); w.className = "card tv-card";
     const q = new URLSearchParams({symbol:sym, interval:"5", theme:"dark", style:"1", timezone:"Europe/Madrid", locale:"ru",
       hidesidetoolbar:"1", symboledit:"1", saveimage:"0", withdateranges:"1", studies:"[]", toolbarbg:"0a0e14"});
